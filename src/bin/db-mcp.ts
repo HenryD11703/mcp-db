@@ -119,10 +119,31 @@ export async function handleCli(args: ReadonlyArray<string>): Promise<number> {
   }
 
   if (command === 'approve' || command === 'reject') {
-    const approvalId = args[1];
-    if (!approvalId) {
-      console.error(`[DB-MCP ERROR] Debe especificar el identificador de aprobación: db-mcp ${command} <approvalId>`);
-      return 1;
+    let rawApprovalId = args[1]?.replace(/['"]/g, '').trim();
+    const pending = await store.listPendingTickets();
+
+    if (!rawApprovalId || rawApprovalId === 'latest') {
+      if (pending.length === 0) {
+        console.log(`[DB-MCP] No hay consultas pendientes de aprobación.`);
+        return 0;
+      }
+
+      if (pending.length === 1 || rawApprovalId === 'latest') {
+        const target = pending[pending.length - 1]!;
+        rawApprovalId = target.approvalId;
+        console.log(`[DB-MCP] Seleccionando consulta pendiente: ${rawApprovalId}`);
+      } else {
+        console.log(`[DB-MCP] Hay ${pending.length} consultas pendientes de aprobación:\n`);
+        pending.forEach((t, i) => {
+          console.log(`  [${i + 1}] ${t.approvalId}`);
+          console.log(`      Base de datos: ${t.database} | Creado: ${t.createdAt}`);
+          console.log(`      SQL: ${t.sql.replace(/\s+/g, ' ').slice(0, 120)}...\n`);
+        });
+        console.log(`Para aprobar una, ejecuta:`);
+        console.log(`  npm run cli:db-mcp approve <approvalId>`);
+        console.log(`  npm run cli:db-mcp approve latest`);
+        return 0;
+      }
     }
 
     let reason: string | undefined;
@@ -135,13 +156,19 @@ export async function handleCli(args: ReadonlyArray<string>): Promise<number> {
     const decision = command === 'approve' ? 'APPROVED' : 'REJECTED';
 
     try {
-      const ticket = await store.getTicket(approvalId);
+      const ticket = await store.getTicket(rawApprovalId);
       if (!ticket) {
-        console.error(`[DB-MCP ERROR] No se encontró ningún ticket con ID "${approvalId}".`);
+        console.error(`[DB-MCP ERROR] No se encontró ningún ticket que coincida con "${rawApprovalId}".`);
+        if (pending.length > 0) {
+          console.error(`\nTickets pendientes disponibles:`);
+          for (const t of pending) {
+            console.error(`  - ${t.approvalId} (Base de datos: ${t.database}, Creado: ${t.createdAt})`);
+          }
+        }
         return 1;
       }
 
-      const resolved = await store.resolveTicket(approvalId, decision, operator, reason);
+      const resolved = await store.resolveTicket(ticket.approvalId, decision, operator, reason);
 
       // Audit decision
       await auditLogger.logEvent({
@@ -157,7 +184,7 @@ export async function handleCli(args: ReadonlyArray<string>): Promise<number> {
         rowCount: 0
       });
 
-      console.log(`[DB-MCP SUCCESS] Consulta ${approvalId} resuelta como ${decision}.`);
+      console.log(`[DB-MCP SUCCESS] Consulta ${ticket.approvalId} resuelta como ${decision}.`);
       console.log(`Operador: ${resolved.resolvedBy}`);
       if (reason) {
         console.log(`Motivo: ${reason}`);
@@ -173,8 +200,8 @@ export async function handleCli(args: ReadonlyArray<string>): Promise<number> {
   console.log(`  db-mcp install               (Asistente interactivo de instalación en Agy, Claude Code, etc.)`);
   console.log(`  db-mcp start [--config <cfg>] (Inicia el servidor MCP sobre Stdio)`);
   console.log(`  db-mcp list-pending          (Lista consultas en cuarentena)`);
-  console.log(`  db-mcp approve <approvalId>  (Aprueba consulta retenida)`);
-  console.log(`  db-mcp reject <approvalId>   (Rechaza consulta retenida)`);
+  console.log(`  db-mcp approve [approvalId]  (Aprueba consulta retenida o la más reciente)`);
+  console.log(`  db-mcp reject [approvalId]   (Rechaza consulta retenida o la más reciente)`);
   return 0;
 }
 

@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { homedir } from 'node:os';
+import { join, resolve, dirname } from 'node:path';
 import type {
   ApprovedQueryResult,
   IPendingApprovalStore,
@@ -18,14 +19,29 @@ interface StoredPayload {
 
 export class PendingApprovalStore implements IPendingApprovalStore {
   private readonly storeFilePath: string;
+  private readonly fallbackPaths: string[] = [];
   private readonly tickets = new Map<string, PendingApprovalTicket>();
   private readonly approvedResults = new Map<string, ApprovedQueryResult>();
 
   constructor(options: PendingApprovalStoreOptions = {}) {
-    this.storeFilePath =
-      options.storeFilePath ||
-      process.env['PENDING_APPROVAL_STORE_PATH'] ||
-      '.db-mcp/pending_approvals.json';
+    if (options.storeFilePath) {
+      this.storeFilePath = options.storeFilePath;
+    } else {
+      const explicitEnv =
+        process.env['PENDING_APPROVAL_STORE_PATH'] ||
+        process.env['APPROVAL_STORE_PATH'];
+
+      if (explicitEnv) {
+        this.storeFilePath = explicitEnv;
+      } else {
+        // Global canonical path in user's home directory: ~/.db-mcp/pending_approvals.json
+        this.storeFilePath = join(homedir(), '.db-mcp', 'pending_approvals.json');
+        this.fallbackPaths = [
+          resolve(process.cwd(), '.db-mcp', 'pending_approvals.json'),
+          join(homedir(), 'Documents', 'test-mcp', '.db-mcp', 'pending_approvals.json')
+        ];
+      }
+    }
 
     this.initializeFromFile();
   }
@@ -37,7 +53,22 @@ export class PendingApprovalStore implements IPendingApprovalStore {
 
   public async getTicket(approvalId: string): Promise<PendingApprovalTicket | null> {
     this.initializeFromFile();
-    const ticket = this.tickets.get(approvalId);
+    const cleanId = approvalId.replace(/['"]/g, '').trim().toLowerCase();
+
+    // 1. Exact match
+    let ticket = this.tickets.get(approvalId) || this.tickets.get(cleanId);
+
+    // 2. Prefix or substring match
+    if (!ticket) {
+      for (const [id, t] of this.tickets.entries()) {
+        const lowerId = id.toLowerCase();
+        if (lowerId === cleanId || lowerId.startsWith(cleanId) || lowerId.includes(cleanId)) {
+          ticket = t;
+          break;
+        }
+      }
+    }
+
     if (!ticket) {
       return null;
     }
@@ -47,7 +78,7 @@ export class PendingApprovalStore implements IPendingApprovalStore {
         ...ticket,
         status: 'EXPIRED'
       };
-      this.tickets.set(approvalId, expiredTicket);
+      this.tickets.set(ticket.approvalId, expiredTicket);
       this.atomicWrite();
       return expiredTicket;
     }
@@ -79,13 +110,13 @@ export class PendingApprovalStore implements IPendingApprovalStore {
     operatorIdentity: string,
     reason?: string
   ): Promise<PendingApprovalTicket> {
-    const ticket = this.tickets.get(approvalId);
+    const ticket = await this.getTicket(approvalId);
     if (!ticket) {
       throw new Error(`Ticket with approvalId "${approvalId}" does not exist.`);
     }
 
     if (ticket.status !== 'PENDING') {
-      throw new Error(`Ticket "${approvalId}" is already in state "${ticket.status}".`);
+      throw new Error(`Ticket "${ticket.approvalId}" is already in state "${ticket.status}".`);
     }
 
     const resolvedTicket: PendingApprovalTicket = {
@@ -96,7 +127,7 @@ export class PendingApprovalStore implements IPendingApprovalStore {
       resolutionReason: reason
     };
 
-    this.tickets.set(approvalId, resolvedTicket);
+    this.tickets.set(ticket.approvalId, resolvedTicket);
     this.atomicWrite();
     return resolvedTicket;
   }
@@ -108,13 +139,25 @@ export class PendingApprovalStore implements IPendingApprovalStore {
 
   public async getApprovedResult(approvalId: string): Promise<ApprovedQueryResult | null> {
     this.initializeFromFile();
-    const res = this.approvedResults.get(approvalId);
+    const cleanId = approvalId.replace(/['"]/g, '').trim().toLowerCase();
+
+    let res = this.approvedResults.get(approvalId) || this.approvedResults.get(cleanId);
+    if (!res) {
+      for (const [id, r] of this.approvedResults.entries()) {
+        const lowerId = id.toLowerCase();
+        if (lowerId === cleanId || lowerId.startsWith(cleanId) || lowerId.includes(cleanId)) {
+          res = r;
+          break;
+        }
+      }
+    }
+
     if (!res) {
       return null;
     }
 
     if (new Date(res.expiresAt).getTime() <= Date.now()) {
-      this.approvedResults.delete(approvalId);
+      this.approvedResults.delete(res.approvalId);
       this.atomicWrite();
       return null;
     }
@@ -123,6 +166,7 @@ export class PendingApprovalStore implements IPendingApprovalStore {
   }
 
   public async purgeExpiredTickets(): Promise<number> {
+    this.initializeFromFile();
     const now = Date.now();
     let purgedCount = 0;
 
@@ -148,12 +192,8 @@ export class PendingApprovalStore implements IPendingApprovalStore {
   }
 
   private initializeFromFile(): void {
+    // 1. Read primary file first
     try {
-      const dir = dirname(this.storeFilePath);
-      if (!existsSync(dir)) {
-        mkdirSync(dir, { recursive: true });
-      }
-
       if (existsSync(this.storeFilePath)) {
         const raw = readFileSync(this.storeFilePath, 'utf8').trim();
         if (raw.length > 0) {
@@ -171,7 +211,36 @@ export class PendingApprovalStore implements IPendingApprovalStore {
         }
       }
     } catch {
-      // In case of error reading file, maintain empty maps
+      // Ignore read errors on primary file
+    }
+
+    // 2. Read fallbacks for missing tickets only
+    for (const filePath of this.fallbackPaths) {
+      if (filePath === this.storeFilePath) continue;
+      try {
+        if (existsSync(filePath)) {
+          const raw = readFileSync(filePath, 'utf8').trim();
+          if (raw.length > 0) {
+            const parsed = JSON.parse(raw) as StoredPayload;
+            if (Array.isArray(parsed.tickets)) {
+              for (const ticket of parsed.tickets) {
+                if (!this.tickets.has(ticket.approvalId)) {
+                  this.tickets.set(ticket.approvalId, ticket);
+                }
+              }
+            }
+            if (Array.isArray(parsed.approvedResults)) {
+              for (const res of parsed.approvedResults) {
+                if (!this.approvedResults.has(res.approvalId)) {
+                  this.approvedResults.set(res.approvalId, res);
+                }
+              }
+            }
+          }
+        }
+      } catch {
+        // Ignore read errors on fallback files
+      }
     }
   }
 
