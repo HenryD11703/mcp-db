@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://db-mcp-node.local/schemas/adversarial-corpus.schema.json",
+  "title": "Adversarial SQL Security Corpus",
+  "description": "Structured corpus of SQL attack vectors (1-10) and legitimate SELECT control queries executed in CI on every change.",
+  "type": "object",
+  "required": ["version", "minimumVectorsRequired", "cases"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "minimumVectorsRequired": {
+      "type": "integer",
+      "const": 10
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 30,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "vector",
+          "dialect",
+          "description",
+          "sql",
+          "expectedOutcome"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^(ADV-V(0[1-9]|10)-\\d{3}|CTL-SEL-\\d{3})$"
+          },
+          "vector": {
+            "type": "string",
+            "enum": [
+              "V01_STACKED_QUERIES",
+              "V02_SELECT_INTO",
+              "V03_COMMENT_OBFUSCATION",
+              "V04_MUTATING_CTE",
+              "V05_DANGEROUS_FUNCTIONS",
+              "V06_EXPLICIT_LOCKING",
+              "V07_REMOTE_LINKED_ACCESS",
+              "V08_TSQL_IMPLICIT_EXEC",
+              "V09_DELAY_DOS",
+              "V10_SESSION_OR_INTERNAL_CMD",
+              "CONTROL_VALID_SELECT"
+            ]
+          },
+          "dialect": {
+            "type": "string",
+            "enum": ["tsql", "postgres", "common"]
+          },
+          "description": {
+            "type": "string",
+            "minLength": 10
+          },
+          "sql": {
+            "type": "string",
+            "minLength": 1
+          },
+          "expectedOutcome": {
+            "type": "string",
+            "enum": ["REJECT", "ALLOW"]
+          },
+          "expectedReasonCode": {
+            "type": "string"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": { "expectedOutcome": { "const": "REJECT" } }
+            },
+            "then": {
+              "required": ["expectedReasonCode"]
+            }
+          }
+        ]
+      }
+    }
+  }
+}
