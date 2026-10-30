@@ -1,0 +1,52 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AdversarialRowsCorpus",
+  "description": "Schema for the adversarial database rows test suite targeting indirect prompt injection and format disruption.",
+  "type": "object",
+  "required": ["version", "description", "categories", "cases"],
+  "properties": {
+    "version": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "categories": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "description"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "description": { "type": "string" }
+        }
+      }
+    },
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "category", "description", "maliciousCellContent", "columnName", "expectedInOutput", "forbiddenInOutput"],
+        "properties": {
+          "id": { "type": "string" },
+          "category": {
+            "type": "string",
+            "enum": [
+              "R01_PROMPT_INJECTION",
+              "R02_DELIMITER_BREAK",
+              "R03_CONTROL_CHARS",
+              "R04_FORMAT_SPOOFING",
+              "R05_SPECIAL_TOKENS"
+            ]
+          },
+          "description": { "type": "string" },
+          "columnName": { "type": "string" },
+          "maliciousCellContent": { "type": "string" },
+          "expectedInOutput": { "type": "string" },
+          "forbiddenInOutput": { "type": "string" }
+        }
+      }
+    }
+  }
+}
