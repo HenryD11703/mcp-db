@@ -158,16 +158,17 @@ export async function createMssqlDriverPool(config: sql.config | string): Promis
     },
     async explainXml(sqlText: string, params: ReadonlyArray<QueryParameter>): Promise<string> {
       const req = new sql.Request(pool);
+      await req.batch('SET SHOWPLAN_XML ON');
       for (const p of params) {
         bindMssqlParameter(req, p.name, p.type, p.value);
       }
-      await req.batch('SET SHOWPLAN_XML ON');
       try {
         const res = await req.query(sqlText);
         const firstRow = res.recordset?.[0] as Record<string, unknown> | undefined;
         const firstValue = firstRow ? Object.values(firstRow)[0] : '';
         return String(firstValue ?? '');
       } finally {
+        req.parameters = {};
         await req.batch('SET SHOWPLAN_XML OFF').catch(() => undefined);
       }
     },
