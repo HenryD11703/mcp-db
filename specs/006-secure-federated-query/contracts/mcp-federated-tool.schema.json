@@ -1,0 +1,60 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "execute_federated_query",
+  "description": "Orquestador de consultas federadas seguras entre bases de datos heterogéneas sin linked servers.",
+  "type": "object",
+  "required": [
+    "sourceAdapterId",
+    "sourceSql",
+    "sourceKeyColumn",
+    "targetAdapterId",
+    "targetSqlTemplate",
+    "targetJoinColumn"
+  ],
+  "properties": {
+    "sourceAdapterId": {
+      "type": "string",
+      "description": "Identificador registrado de la base de datos origen (BD A) en el AdapterRegistry."
+    },
+    "sourceSql": {
+      "type": "string",
+      "description": "Sentencia SELECT de solo lectura a ejecutar en la base de datos origen."
+    },
+    "sourceKeyColumn": {
+      "type": "string",
+      "description": "Nombre de la columna simple en el resultado de BD A cuyos valores se usarán como filtro."
+    },
+    "targetAdapterId": {
+      "type": "string",
+      "description": "Identificador registrado de la base de datos destino (BD B) en el AdapterRegistry."
+    },
+    "targetSqlTemplate": {
+      "type": "string",
+      "description": "Plantilla SQL de solo lectura para BD B conteniendo la cláusula 'IN (:keys)' donde se inyectarán las claves como parámetros tipados."
+    },
+    "targetJoinColumn": {
+      "type": "string",
+      "description": "Nombre de la columna simple de unión en BD B que recibe el filtro de claves."
+    },
+    "joinType": {
+      "type": "string",
+      "enum": ["LEFT", "INNER"],
+      "default": "LEFT",
+      "description": "Tipo de cruce en memoria a realizar entre los resultados de ambas bases de datos."
+    },
+    "maxKeys": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000,
+      "default": 500,
+      "description": "Tope estricto de claves a extraer e inyectar en BD B (default 500)."
+    },
+    "overflowAction": {
+      "type": "string",
+      "enum": ["truncate", "fail"],
+      "default": "truncate",
+      "description": "Acción ante exceso de claves sobre maxKeys: 'truncate' (procesa los primeros maxKeys con advertencia) o 'fail' (aborta con error)."
+    }
+  },
+  "additionalProperties": false
+}

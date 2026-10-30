@@ -183,3 +183,34 @@ export class PendingApprovalRequiredError extends Error {
   }
 }
 
+
+
+export class FederatedQueryError extends Error {
+  public readonly federationId?: string;
+  public readonly step?: string;
+
+  constructor(message: string, federationId?: string, step?: string) {
+    super(
+      `Federated query error${step ? ` at step "${step}"` : ''}${federationId ? ` [Federation ID: ${federationId}]` : ''}: ${message}`
+    );
+    this.name = 'FederatedQueryError';
+    this.federationId = federationId;
+    this.step = step;
+  }
+}
+
+export class FederatedKeyLimitExceededError extends FederatedQueryError {
+  public readonly totalKeys: number;
+  public readonly maxKeys: number;
+
+  constructor(totalKeys: number, maxKeys: number, federationId?: string) {
+    super(
+      `Extracted keys count (${totalKeys}) exceeds strict maximum allowed limit of ${maxKeys}. Refusing execution under overflowAction='fail'.`,
+      federationId,
+      'EXTRACTING_KEYS'
+    );
+    this.name = 'FederatedKeyLimitExceededError';
+    this.totalKeys = totalKeys;
+    this.maxKeys = maxKeys;
+  }
+}

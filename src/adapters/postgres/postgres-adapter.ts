@@ -18,6 +18,15 @@ import {
 } from '../../core/errors.js';
 import { HardenedAstValidator } from '../../core/validation/ast-validator.js';
 import { normalizePostgresPlan } from './postgres-plan-parser.js';
+import { fetchPostgresCatalogExtras } from './postgres-catalog.js';
+import { buildContainmentSql } from '../../core/discovery/containment-sql.js';
+import type {
+  CatalogCapableAdapter,
+  CatalogExtras,
+  ColumnRef,
+  ContainmentEvidence,
+  ContainmentSampleOptions
+} from '../../contracts/legacy-discovery.contract.js';
 
 export interface PostgresDriverSession {
   readonly processID?: number;
@@ -144,7 +153,7 @@ function isPostgresDriverPool(
   );
 }
 
-export class PostgresAdapter implements DatabaseAdapter {
+export class PostgresAdapter implements DatabaseAdapter, CatalogCapableAdapter {
   public readonly dialect = 'postgres' as const;
   public readonly adapterId: string;
   private readonly pool: PostgresDriverPool;
@@ -350,8 +359,39 @@ export class PostgresAdapter implements DatabaseAdapter {
     }
   }
 
-  public async close(): Promise<void> {
-    await this.pool.end();
+  public async getCatalogExtras(signal?: AbortSignal): Promise<CatalogExtras> {
+    if (signal?.aborted) {
+      throw new QueryCancelledError(this.adapterId);
+    }
+    const session = await this.pool.connect();
+    try {
+      return await fetchPostgresCatalogExtras(session);
+    } finally {
+      session.release();
+    }
+  }
+
+  /**
+   * Bounded containment probe executed through `executeQuery`, so it passes the
+   * read-only AST guard and uses native cancellation. Only two counters are returned.
+   */
+  public async sampleContainment(
+    child: ColumnRef,
+    parent: ColumnRef,
+    options: ContainmentSampleOptions
+  ): Promise<ContainmentEvidence> {
+    const sql = buildContainmentSql('postgres', child, parent, options.maxSample);
+    const result = await this.executeQuery({
+      sql,
+      params: [],
+      maxRows: 1,
+      ...(options.signal ? { signal: options.signal } : {})
+    });
+    const row = result.rows[0] ?? {};
+    return { sampled: Number(row['sampled'] ?? 0), matched: Number(row['matched'] ?? 0) };
+  }
+
+  public async close(): Promise<void> {    await this.pool.end();
   }
 
   private assertValidSelect(sql: string): void {

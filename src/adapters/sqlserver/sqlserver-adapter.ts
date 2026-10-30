@@ -19,6 +19,15 @@ import {
 } from '../../core/errors.js';
 import { HardenedAstValidator } from '../../core/validation/ast-validator.js';
 import { normalizeSqlServerPlanXml } from './sqlserver-plan-parser.js';
+import { fetchSqlServerCatalogExtras } from './sqlserver-catalog.js';
+import { buildContainmentSql } from '../../core/discovery/containment-sql.js';
+import type {
+  CatalogCapableAdapter,
+  CatalogExtras,
+  ColumnRef,
+  ContainmentEvidence,
+  ContainmentSampleOptions
+} from '../../contracts/legacy-discovery.contract.js';
 
 export interface SqlServerDriverRequest {
   input(name: string, type: QueryParameter['type'], value: unknown): void;
@@ -127,7 +136,7 @@ function bindMssqlParameter(
   }
 }
 
-export async function createMssqlDriverPool(config: sql.config): Promise<SqlServerDriverPool> {
+export async function createMssqlDriverPool(config: sql.config | string): Promise<SqlServerDriverPool> {
   const pool = await new sql.ConnectionPool(config).connect();
   return {
     createRequest(): SqlServerDriverRequest {
@@ -168,7 +177,7 @@ export async function createMssqlDriverPool(config: sql.config): Promise<SqlServ
   };
 }
 
-export class SqlServerAdapter implements DatabaseAdapter {
+export class SqlServerAdapter implements DatabaseAdapter, CatalogCapableAdapter {
   public readonly dialect = 'tsql' as const;
   public readonly adapterId: string;
   private readonly pool: SqlServerDriverPool;
@@ -352,8 +361,34 @@ export class SqlServerAdapter implements DatabaseAdapter {
     };
   }
 
-  public async close(): Promise<void> {
-    await this.pool.close();
+  public async getCatalogExtras(signal?: AbortSignal): Promise<CatalogExtras> {
+    if (signal?.aborted) {
+      throw new QueryCancelledError(this.adapterId);
+    }
+    return await fetchSqlServerCatalogExtras(this.pool);
+  }
+
+  /**
+   * Bounded containment probe executed through `executeQuery`, so it passes the
+   * read-only AST guard and uses native cancellation. Only two counters are returned.
+   */
+  public async sampleContainment(
+    child: ColumnRef,
+    parent: ColumnRef,
+    options: ContainmentSampleOptions
+  ): Promise<ContainmentEvidence> {
+    const sql = buildContainmentSql('tsql', child, parent, options.maxSample);
+    const result = await this.executeQuery({
+      sql,
+      params: [],
+      maxRows: 1,
+      ...(options.signal ? { signal: options.signal } : {})
+    });
+    const row = result.rows[0] ?? {};
+    return { sampled: Number(row['sampled'] ?? 0), matched: Number(row['matched'] ?? 0) };
+  }
+
+  public async close(): Promise<void> {    await this.pool.close();
   }
 
   private assertValidSelect(sqlText: string): void {
