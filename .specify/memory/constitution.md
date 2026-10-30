@@ -1,17 +1,10 @@
 <!--
 Sync Impact Report
-- Version change: N/A (uninitialized template) → 1.0.0
-- Modified principles:
-  - [PRINCIPLE_1_NAME] → I. Solo Lectura Inquebrantable (La IA Nunca Escribe)
-  - [PRINCIPLE_2_NAME] → II. Defensa en Profundidad
-  - [PRINCIPLE_3_NAME] → III. Cero Confianza en los Datos (Zero-Trust Data Handling)
-  - [PRINCIPLE_4_NAME] → IV. Privacidad en Memoria
-  - [PRINCIPLE_5_NAME] → V. Auditoría Estructurada Inmutable
-- Added sections:
-  - Principle VI. Desarrollo Guiado por Pruebas Adversarias (NON-NEGOTIABLE)
-  - Principle VII. Desacoplamiento por Contrato (DatabaseAdapter)
-  - Restricciones Tecnológicas y de Arquitectura (replaces [SECTION_2_NAME])
-  - Flujo de Desarrollo y Compuertas de Calidad (replaces [SECTION_3_NAME])
+- Version change: 1.0.0 → 1.1.0
+- Modified principles: None
+- Added sections / restrictions:
+  - Identidad de Control de Versiones y Repositorio Canónico (HenryD11703, https://github.com/HenryD11703/mcp-db.git)
+  - Gestión y Automatización con GitHub CLI (gh)
 - Removed sections: None
 - Follow-up TODOs: None
 -->
@@ -43,6 +36,8 @@ El núcleo del servidor MCP MUST permanecer agnóstico a motores de base de dato
 ## Restricciones Tecnológicas y de Arquitectura
 
 - **Lenguaje y Tipado**: El proyecto MUST desarrollarse en TypeScript sobre Node.js con el compilador en modo estricto (`strict: true`) y utilizando el SDK oficial de MCP.
+- **Identidad de Control de Versiones y Repositorio Canónico**: Todo commit en el proyecto MUST ser emitido bajo la identidad de desarrollador oficial de GitHub del autor: nombre de usuario `HenryD11703` y correo electrónico `3680558330101@ingenieria.usac.edu.gt`. El repositorio remoto canónico del proyecto es `https://github.com/HenryD11703/mcp-db.git`.
+- **Gestión y Automatización con GitHub CLI (`gh`)**: Se adopta formalmente `gh` (GitHub CLI) como la herramienta CLI estándar para operaciones remotas, creación y vinculación de repositorios, gestión de ramas, apertura y revisión de pull requests, y automatizaciones del flujo de trabajo del proyecto.
 - **Federación sin Linked Servers**: Las consultas federadas entre bases de datos MUST coordinarse desde el proceso del MCP tomando las claves del origen como parámetros tipados hacia el destino, con un tope configurable de claves, validación en el guard en cada paso, auditoría independiente y credenciales de solo lectura propias por cada base de datos. Queda prohibido el uso de *linked servers* u `OPENQUERY`.
 - **Control de Costo y Cancelación Real**: Toda consulta MUST respetar topes configurables de costo de plan de ejecución, número máximo de filas, tiempo de ejecución y tasa de consultas por minuto. Cuando se exceda el tiempo límite, la consulta MUST cancelarse de forma efectiva en el motor de base de datos y no únicamente en el cliente.
 
@@ -63,4 +58,4 @@ Esta Constitución prevalece sobre cualquier otra práctica, especificación o d
   - `PATCH`: Aclaraciones de redacción, correcciones tipográficas o refinamientos no semánticos.
 - **Revisión de Cumplimiento**: Todo artefacto generado mediante `/speckit-specify`, `/speckit-plan`, `/speckit-tasks` y `/speckit-implement` MUST verificar explícitamente la conformidad con los siete principios fundamentales definidos en este documento.
 
-**Version**: 1.0.0 | **Ratified**: 2026-10-30 | **Last Amended**: 2026-10-30
+**Version**: 1.1.0 | **Ratified**: 2026-10-30 | **Last Amended**: 2026-10-30
