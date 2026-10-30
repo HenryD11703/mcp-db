@@ -207,6 +207,10 @@ export class DiscoveryTools {
 
     let target: string = name;
     let adapterId = typeof rawArgs['adapterId'] === 'string' ? rawArgs['adapterId'] : '';
+    if (!adapterId && this.registry.listAdapterIds().length === 1) {
+      adapterId = this.registry.listAdapterIds()[0]!;
+      (rawArgs as Record<string, unknown>)['adapterId'] = adapterId;
+    }
     let engine = 'unknown';
     let database = adapterId || 'default';
     let resultCount = 0;

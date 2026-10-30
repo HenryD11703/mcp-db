@@ -253,13 +253,26 @@ export function createDatabaseMcpServer(
             }
           }
         }
+      },
+      {
+        name: 'list_adapters',
+        description:
+          'Lists all configured and verified database adapters in this MCP server, including their adapterId, SQL dialect (postgres, tsql), and whether they are active.',
+        inputSchema: {
+          type: 'object',
+          properties: {}
+        }
       }
     ]
   }));
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const args = (request.params.arguments ?? {}) as Record<string, unknown>;
-    const adapterId = String(args['adapterId'] ?? '');
+    let adapterId = String(args['adapterId'] ?? '').trim();
+    if (!adapterId && registry.listAdapterIds().length === 1) {
+      adapterId = registry.listAdapterIds()[0]!;
+      args['adapterId'] = adapterId;
+    }
     const correlationId = randomUUID();
     const requesterId =
       String(args['requesterId'] || request.params._meta?.['requesterId'] || '') ||
@@ -280,6 +293,33 @@ export function createDatabaseMcpServer(
     }
 
     try {
+      if (request.params.name === 'list_adapters') {
+        const ids = registry.listAdapterIds();
+        const adapters = ids.map((id) => {
+          const adapter = registry.getAdapter(id);
+          return {
+            adapterId: adapter.adapterId,
+            dialect: adapter.dialect
+          };
+        });
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  adapters,
+                  count: adapters.length,
+                  defaultAdapterId: adapters.length === 1 ? adapters[0]?.adapterId : null
+                },
+                null,
+                2
+              )
+            }
+          ]
+        };
+      }
+
       if (discovery.handles(request.params.name)) {
         return await discovery.call(request.params.name, args, { requesterId, correlationId });
       }
