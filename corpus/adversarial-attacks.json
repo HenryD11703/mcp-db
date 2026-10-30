@@ -1,0 +1,300 @@
+{
+  "version": "1.0.0",
+  "minimumVectorsRequired": 10,
+  "cases": [
+    {
+      "id": "ADV-V01-001",
+      "vector": "V01_STACKED_QUERIES",
+      "dialect": "common",
+      "description": "Stacked query attempting DROP TABLE after valid SELECT",
+      "sql": "SELECT id, nombre FROM clientes; DROP TABLE clientes;",
+      "expectedOutcome": "REJECT",
+      "expectedReasonCode": "V01_STACKED_QUERIES"
+    },
+    {
+      "id": "ADV-V01-002",
+      "vector": "V01_STACKED_QUERIES",
+      "dialect": "postgres",
+      "description": "Stacked query attempting privilege escalation via GRANT",
+      "sql": "SELECT 1; GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO public",
+      "expectedOutcome": "REJECT",
+      "expectedReasonCode": "V01_STACKED_QUERIES"
+    },
+    {
+      "id": "ADV-V01-003",
+      "vector": "V01_STACKED_QUERIES",
+      "dialect": "tsql",
+      "description": "Stacked query attempting UPDATE on financial balances",
+      "sql": "SELECT cuenta_id FROM cuentas WHERE estado = 1; UPDATE cuentas SET saldo = 999999 WHERE cuenta_id = 10",
+      "expectedOutcome": "REJECT",
+      "expectedReasonCode": "V01_STACKED_QUERIES"
+    },
+    {
+      "id": "ADV-V02-001",
+      "vector": "V02_SELECT_INTO",
+      "dialect": "tsql",
+      "description": "Covert table creation using SELECT INTO permanent table in T-SQL",
+      "sql": "SELECT id, correo, dpi INTO dbo.exfiltracion_clientes FROM dbo.clientes",
+      "expectedOutcome": "REJECT",
+      "expectedReasonCode": "V02_SELECT_INTO"
+    },
+    {
+      "id": "ADV-V02-002",
+      "vector": "V02_SELECT_INTO",
+      "dialect": "tsql",
+      "description": "Covert temporary table creation using SELECT INTO #temp",
+      "sql": "SELECT * INTO #temp_salarios FROM empleados WHERE activo = 1",
+      "expectedOutcome": "REJECT",
+      "expectedReasonCode": "V02_SELECT_INTO"
+    },
+    {
+      "id": "ADV-V02-003",
+      "vector": "V02_SELECT_INTO",
+      "dialect": "postgres",
+      "description": "PostgreSQL SELECT INTO TEMP TABLE statement",
+      "sql": "SELECT id, monto INTO TEMP TABLE copia_pagos FROM pagos",
+      "expectedOutcome": "REJECT",
+      "expectedReasonCode": "V02_SELECT_INTO"
+    },
+    {
+      "id": "ADV-V03-001",
+      "vector": "V03_COMMENT_OBFUSCATION",
+      "dialect": "common",
+      "description": "Inline comment attempting to truncate WHERE predicate or hide payload",
+      "sql": "SELECT id, nombre FROM usuarios WHERE activo = 1 -- AND rol = 'cliente'",
+      "expectedOutcome": "REJECT",
+      "expectedReasonCode": "V03_COMMENT_OBFUSCATION"
+    },
+    {
+      "id": "ADV-V03-002",
+      "vector": "V03_COMMENT_OBFUSCATION",
+      "dialect": "common",
+      "description": "Block comment obfuscating SQL keywords between tokens",
+      "sql": "SELECT /* comentario oculto */ id, saldo FROM cuentas",
+      "expectedOutcome": "REJECT",
+      "expectedReasonCode": "V03_COMMENT_OBFUSCATION"
+    },
+    {
+      "id": "ADV-V03-003",
+      "vector": "V03_COMMENT_OBFUSCATION",
+      "dialect": "tsql",
+      "description": "Nested or multi-line block comment hiding administrative command",
+      "sql": "SELECT 1 /* EXEC xp_cmdshell 'whoami' */ FROM clientes",
+      "expectedOutcome": "REJECT",
+      "expectedReasonCode": "V03_COMMENT_OBFUSCATION"
+    },
+    {
+      "id": "ADV-V04-001",
+      "vector": "V04_MUTATING_CTE",
+      "dialect": "postgres",
+      "description": "PostgreSQL writable CTE performing DELETE ... RETURNING inside a SELECT",
+      "sql": "WITH filas_borradas AS (DELETE FROM facturas WHERE estado = 'PENDIENTE' RETURNING *) SELECT * FROM filas_borradas",
+      "expectedOutcome": "REJECT",
+      "expectedReasonCode": "V04_MUTATING_CTE"
+    },
+    {
+      "id": "ADV-V04-002",
+      "vector": "V04_MUTATING_CTE",
+      "dialect": "postgres",
+      "description": "PostgreSQL writable CTE performing UPDATE ... RETURNING inside a SELECT",
+      "sql": "WITH cambio AS (UPDATE usuarios SET rol = 'admin' WHERE id = 5 RETURNING id, rol) SELECT * FROM cambio",
+      "expectedOutcome": "REJECT",
+      "expectedReasonCode": "V04_MUTATING_CTE"
+    },
+    {
+      "id": "ADV-V04-003",
+      "vector": "V04_MUTATING_CTE",
+      "dialect": "postgres",
+      "description": "PostgreSQL writable CTE performing INSERT ... RETURNING inside a SELECT",
+      "sql": "WITH nuevo AS (INSERT INTO auditoria (evento) VALUES ('falso') RETURNING id) SELECT id FROM nuevo",
+      "expectedOutcome": "REJECT",
+      "expectedReasonCode": "V04_MUTATING_CTE"
+    },
+    {
+      "id": "ADV-V05-001",
+      "vector": "V05_DANGEROUS_FUNCTIONS",
+      "dialect": "postgres",
+      "description": "PostgreSQL administrative function terminating active backends",
+      "sql": "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE state = 'active'",
+      "expectedOutcome": "REJECT",
+      "expectedReasonCode": "V05_DANGEROUS_FUNCTIONS"
+    },
+    {
+      "id": "ADV-V05-002",
+      "vector": "V05_DANGEROUS_FUNCTIONS",
+      "dialect": "postgres",
+      "description": "PostgreSQL server filesystem read via pg_read_file",
+      "sql": "SELECT pg_read_file('/etc/passwd', 0, 1000) AS contenido",
+      "expectedOutcome": "REJECT",
+      "expectedReasonCode": "V05_DANGEROUS_FUNCTIONS"
+    },
+    {
+      "id": "ADV-V05-003",
+      "vector": "V05_DANGEROUS_FUNCTIONS",
+      "dialect": "postgres",
+      "description": "PostgreSQL configuration modification or directory listing via set_config / pg_ls_dir",
+      "sql": "SELECT pg_ls_dir('.') AS archivos",
+      "expectedOutcome": "REJECT",
+      "expectedReasonCode": "V05_DANGEROUS_FUNCTIONS"
+    },
+    {
+      "id": "ADV-V06-001",
+      "vector": "V06_EXPLICIT_LOCKING",
+      "dialect": "postgres",
+      "description": "Explicit row-level write lock via SELECT ... FOR UPDATE",
+      "sql": "SELECT id, saldo FROM cuentas WHERE id = 42 FOR UPDATE",
+      "expectedOutcome": "REJECT",
+      "expectedReasonCode": "V06_EXPLICIT_LOCKING"
+    },
+    {
+      "id": "ADV-V06-002",
+      "vector": "V06_EXPLICIT_LOCKING",
+      "dialect": "postgres",
+      "description": "Explicit shared row lock via SELECT ... FOR SHARE NOWAIT",
+      "sql": "SELECT id, estado FROM pedidos WHERE cliente_id = 10 FOR SHARE NOWAIT",
+      "expectedOutcome": "REJECT",
+      "expectedReasonCode": "V06_EXPLICIT_LOCKING"
+    },
+    {
+      "id": "ADV-V06-003",
+      "vector": "V06_EXPLICIT_LOCKING",
+      "dialect": "tsql",
+      "description": "T-SQL exclusive table/update lock hints WITH (UPDLOCK, HOLDLOCK, TABLOCKX)",
+      "sql": "SELECT id, saldo FROM dbo.cuentas WITH (TABLOCKX, HOLDLOCK)",
+      "expectedOutcome": "REJECT",
+      "expectedReasonCode": "V06_EXPLICIT_LOCKING"
+    },
+    {
+      "id": "ADV-V07-001",
+      "vector": "V07_REMOTE_LINKED_ACCESS",
+      "dialect": "tsql",
+      "description": "Linked server bypass using OPENQUERY in SQL Server",
+      "sql": "SELECT * FROM OPENQUERY(SRV_FINANZAS, 'UPDATE cuentas SET saldo = 0; SELECT 1 AS ok')",
+      "expectedOutcome": "REJECT",
+      "expectedReasonCode": "V07_REMOTE_LINKED_ACCESS"
+    },
+    {
+      "id": "ADV-V07-002",
+      "vector": "V07_REMOTE_LINKED_ACCESS",
+      "dialect": "tsql",
+      "description": "Ad-hoc remote connection bypass using OPENROWSET in SQL Server",
+      "sql": "SELECT * FROM OPENROWSET('SQLNCLI', 'Server=10.0.0.5;Trusted_Connection=yes;', 'SELECT * FROM sys.syslogins')",
+      "expectedOutcome": "REJECT",
+      "expectedReasonCode": "V07_REMOTE_LINKED_ACCESS"
+    },
+    {
+      "id": "ADV-V07-003",
+      "vector": "V07_REMOTE_LINKED_ACCESS",
+      "dialect": "tsql",
+      "description": "Four-part object name referencing remote linked server",
+      "sql": "SELECT id, clave FROM SRV_REMOTO.BD_CENTRAL.dbo.usuarios_admin",
+      "expectedOutcome": "REJECT",
+      "expectedReasonCode": "V07_REMOTE_LINKED_ACCESS"
+    },
+    {
+      "id": "ADV-V08-001",
+      "vector": "V08_TSQL_IMPLICIT_EXEC",
+      "dialect": "tsql",
+      "description": "T-SQL whitespace-chained stored procedure execution without semicolon",
+      "sql": "SELECT 1 EXEC sp_configure 'show advanced options', 1",
+      "expectedOutcome": "REJECT",
+      "expectedReasonCode": "V08_TSQL_IMPLICIT_EXEC"
+    },
+    {
+      "id": "ADV-V08-002",
+      "vector": "V08_TSQL_IMPLICIT_EXEC",
+      "dialect": "tsql",
+      "description": "T-SQL whitespace-chained EXECUTE xp_cmdshell after SELECT",
+      "sql": "SELECT nombre FROM clientes WHERE id = 1 EXECUTE xp_cmdshell 'dir'",
+      "expectedOutcome": "REJECT",
+      "expectedReasonCode": "V08_TSQL_IMPLICIT_EXEC"
+    },
+    {
+      "id": "ADV-V08-003",
+      "vector": "V08_TSQL_IMPLICIT_EXEC",
+      "dialect": "tsql",
+      "description": "Direct EXEC invocation disguised as query",
+      "sql": "EXEC dbo.sp_recalcular_saldos @anio = 2026",
+      "expectedOutcome": "REJECT",
+      "expectedReasonCode": "V08_TSQL_IMPLICIT_EXEC"
+    },
+    {
+      "id": "ADV-V09-001",
+      "vector": "V09_DELAY_DOS",
+      "dialect": "tsql",
+      "description": "T-SQL denial of service via whitespace-chained WAITFOR DELAY",
+      "sql": "SELECT 1 WAITFOR DELAY '00:05:00'",
+      "expectedOutcome": "REJECT",
+      "expectedReasonCode": "V09_DELAY_DOS"
+    },
+    {
+      "id": "ADV-V09-002",
+      "vector": "V09_DELAY_DOS",
+      "dialect": "tsql",
+      "description": "T-SQL denial of service via standalone WAITFOR TIME",
+      "sql": "WAITFOR TIME '23:59:59'",
+      "expectedOutcome": "REJECT",
+      "expectedReasonCode": "V09_DELAY_DOS"
+    },
+    {
+      "id": "ADV-V09-003",
+      "vector": "V09_DELAY_DOS",
+      "dialect": "postgres",
+      "description": "PostgreSQL denial of service via pg_sleep in projection",
+      "sql": "SELECT id, pg_sleep(60) FROM clientes",
+      "expectedOutcome": "REJECT",
+      "expectedReasonCode": "V09_DELAY_DOS"
+    },
+    {
+      "id": "ADV-V10-001",
+      "vector": "V10_SESSION_OR_INTERNAL_CMD",
+      "dialect": "tsql",
+      "description": "T-SQL DBCC internal command execution",
+      "sql": "DBCC FREEPROCCACHE",
+      "expectedOutcome": "REJECT",
+      "expectedReasonCode": "V10_SESSION_OR_INTERNAL_CMD"
+    },
+    {
+      "id": "ADV-V10-002",
+      "vector": "V10_SESSION_OR_INTERNAL_CMD",
+      "dialect": "tsql",
+      "description": "T-SQL whitespace-chained SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED",
+      "sql": "SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED SELECT * FROM cuentas",
+      "expectedOutcome": "REJECT",
+      "expectedReasonCode": "V10_SESSION_OR_INTERNAL_CMD"
+    },
+    {
+      "id": "ADV-V10-003",
+      "vector": "V10_SESSION_OR_INTERNAL_CMD",
+      "dialect": "postgres",
+      "description": "PostgreSQL SET session parameter override attempt",
+      "sql": "SET default_transaction_read_only = off",
+      "expectedOutcome": "REJECT",
+      "expectedReasonCode": "V10_SESSION_OR_INTERNAL_CMD"
+    },
+    {
+      "id": "CTL-SEL-001",
+      "vector": "CONTROL_VALID_SELECT",
+      "dialect": "common",
+      "description": "Standard parameterized-style SELECT with joins, WHERE, GROUP BY, and ORDER BY",
+      "sql": "SELECT c.id, c.estado, COUNT(p.id) AS total_pedidos FROM clientes c INNER JOIN pedidos p ON p.cliente_id = c.id WHERE c.activo = 1 GROUP BY c.id, c.estado ORDER BY total_pedidos DESC",
+      "expectedOutcome": "ALLOW"
+    },
+    {
+      "id": "CTL-SEL-002",
+      "vector": "CONTROL_VALID_SELECT",
+      "dialect": "common",
+      "description": "Valid read-only CTE with aggregation and subquery",
+      "sql": "WITH resumen_mensual AS (SELECT cliente_id, SUM(monto) AS total FROM pagos GROUP BY cliente_id) SELECT cliente_id, total FROM resumen_mensual WHERE total > 1000",
+      "expectedOutcome": "ALLOW"
+    },
+    {
+      "id": "CTL-SEL-003",
+      "vector": "CONTROL_VALID_SELECT",
+      "dialect": "common",
+      "description": "Valid SELECT containing string literals with --, /* */, and reserved keywords like SELECT INTO and EXEC",
+      "sql": "SELECT id, descripcion FROM bitacora WHERE nota = 'Texto con -- guiones, /* bloque */ y SELECT INTO o EXEC sp_test; sin efecto'",
+      "expectedOutcome": "ALLOW"
+    }
+  ]
+}
