@@ -1,0 +1,23 @@
+version: "1.0.0"
+# Glosario de negocio versionado en Git. Se valida al arrancar y se recarga en caliente.
+# Si un cambio es inválido, el servidor conserva la última versión válida y reporta la línea del error.
+tables:
+  - table: TBL_CTA_CTE
+    description: Cuentas corrientes bancarias de clientes
+    synonyms: [cuenta corriente, cuentas]
+    columns:
+      - column: EST_CTA
+        meaning: Estado de la cuenta
+        domainCodes:
+          - { code: "01", meaning: Activa }
+          - { code: "02", meaning: Bloqueada }
+          - { code: "03", meaning: Cancelada }
+  - table: CLI_MSTR
+    description: Maestro de clientes
+    synonyms: [clientes, customers]
+    columns:
+      - column: EST_3
+        meaning: Estado de cobranza del cliente
+        synonyms: [morosidad, deuda]
+        domainCodes:
+          - { code: EST_3, meaning: cliente moroso }

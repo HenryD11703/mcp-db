@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "glossary.schema.json",
+  "title": "Business Glossary",
+  "type": "object",
+  "required": ["version", "tables"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "type": "string", "minLength": 1, "maxLength": 32 },
+    "tables": {
+      "type": "array",
+      "maxItems": 5000,
+      "items": {
+        "type": "object",
+        "required": ["table", "description"],
+        "additionalProperties": false,
+        "properties": {
+          "table": { "type": "string", "maxLength": 256, "description": "name or schema.name" },
+          "description": { "type": "string", "maxLength": 1000 },
+          "synonyms": { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 100 } },
+          "columns": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["column", "meaning"],
+              "additionalProperties": false,
+              "properties": {
+                "column": { "type": "string", "maxLength": 256 },
+                "meaning": { "type": "string", "maxLength": 500 },
+                "synonyms": { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 100 } },
+                "domainCodes": {
+                  "type": "array",
+                  "maxItems": 200,
+                  "items": {
+                    "type": "object",
+                    "required": ["code", "meaning"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "code": { "type": "string", "maxLength": 64 },
+                      "meaning": { "type": "string", "maxLength": 300 },
+                      "deprecated": { "type": "boolean" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
