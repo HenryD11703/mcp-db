@@ -1,0 +1,93 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "OperationalLimitsPolicySchema",
+  "description": "JSON schema for operational limits and database engine risk thresholds",
+  "type": "object",
+  "properties": {
+    "executionTimeoutMs": {
+      "type": "integer",
+      "minimum": 500,
+      "maximum": 120000,
+      "default": 5000,
+      "description": "Maximum execution time in milliseconds before sending native cancel signal to database engine"
+    },
+    "maxRowsLimit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 50000,
+      "default": 1000,
+      "description": "Maximum number of rows returned before safely truncating results"
+    },
+    "rateLimitPerClientPerMinute": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10000,
+      "default": 60,
+      "description": "Max queries per minute per client or transport session"
+    },
+    "rateLimitGlobalPerMinute": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 50000,
+      "default": 300,
+      "description": "Global server-wide max queries per minute across all clients"
+    },
+    "engineThresholds": {
+      "type": "object",
+      "properties": {
+        "largeTablesBlocklist": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        },
+        "maxEstimatedRowsCaution": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 10000
+        },
+        "maxEstimatedRowsBlock": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 100000
+        },
+        "maxEstimatedCostCaution": {
+          "type": "number",
+          "minimum": 0,
+          "default": 5000
+        },
+        "maxEstimatedCostBlock": {
+          "type": "number",
+          "minimum": 0,
+          "default": 50000
+        },
+        "prohibitCartesianJoins": {
+          "type": "boolean",
+          "default": true
+        },
+        "planTimeoutMs": {
+          "type": "integer",
+          "minimum": 200,
+          "maximum": 10000,
+          "default": 2000
+        }
+      },
+      "required": [
+        "largeTablesBlocklist",
+        "maxEstimatedRowsCaution",
+        "maxEstimatedRowsBlock",
+        "maxEstimatedCostCaution",
+        "maxEstimatedCostBlock",
+        "prohibitCartesianJoins",
+        "planTimeoutMs"
+      ]
+    }
+  },
+  "required": [
+    "executionTimeoutMs",
+    "maxRowsLimit",
+    "rateLimitPerClientPerMinute",
+    "rateLimitGlobalPerMinute",
+    "engineThresholds"
+  ],
+  "additionalProperties": false
+}

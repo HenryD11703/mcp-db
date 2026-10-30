@@ -1,0 +1,145 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PendingApprovalsFileStoreSchema",
+  "description": "JSON schema for local structured file storage of pending approvals and approved results",
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "tickets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "approvalId": {
+            "type": "string",
+            "pattern": "^appr_[a-f0-9\\-]+$"
+          },
+          "correlationId": {
+            "type": "string"
+          },
+          "requesterId": {
+            "type": "string"
+          },
+          "engine": {
+            "type": "string",
+            "enum": ["tsql", "postgres"]
+          },
+          "database": {
+            "type": "string"
+          },
+          "sql": {
+            "type": "string"
+          },
+          "params": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": { "type": "string" },
+                "type": { "type": "string", "enum": ["string", "number", "boolean", "date", "null"] },
+                "value": {}
+              },
+              "required": ["name", "type", "value"]
+            }
+          },
+          "riskProfile": {
+            "type": "object",
+            "properties": {
+              "severity": { "type": "string", "enum": ["LOW", "MEDIUM_CAUTION", "CRITICAL_BLOCK"] },
+              "estimatedCost": { "type": "number" },
+              "estimatedRows": { "type": "number" },
+              "hasFullScan": { "type": "boolean" },
+              "scannedTables": { "type": "array", "items": { "type": "string" } },
+              "hasCartesianJoin": { "type": "boolean" },
+              "isVerifiable": { "type": "boolean" },
+              "warnings": { "type": "array", "items": { "type": "string" } },
+              "rawPlanSummary": { "type": "string" }
+            },
+            "required": [
+              "severity",
+              "estimatedCost",
+              "estimatedRows",
+              "hasFullScan",
+              "scannedTables",
+              "hasCartesianJoin",
+              "isVerifiable",
+              "warnings"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["PENDING", "APPROVED", "REJECTED", "EXPIRED"]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "resolvedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "resolvedBy": {
+            "type": "string"
+          },
+          "resolutionReason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "approvalId",
+          "correlationId",
+          "requesterId",
+          "engine",
+          "database",
+          "sql",
+          "params",
+          "riskProfile",
+          "status",
+          "createdAt",
+          "expiresAt"
+        ]
+      }
+    },
+    "approvedResults": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "approvalId": {
+            "type": "string",
+            "pattern": "^appr_[a-f0-9\\-]+$"
+          },
+          "columns": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": { "type": "string" },
+                "dataType": { "type": "string" }
+              },
+              "required": ["name", "dataType"]
+            }
+          },
+          "rows": {
+            "type": "array",
+            "items": { "type": "object" }
+          },
+          "rowCount": { "type": "integer", "minimum": 0 },
+          "truncated": { "type": "boolean" },
+          "executedAt": { "type": "string", "format": "date-time" },
+          "expiresAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["approvalId", "columns", "rows", "rowCount", "truncated", "executedAt", "expiresAt"]
+      }
+    }
+  },
+  "required": ["version", "tickets", "approvedResults"],
+  "additionalProperties": false
+}

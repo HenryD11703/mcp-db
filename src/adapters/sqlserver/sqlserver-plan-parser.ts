@@ -57,6 +57,7 @@ export function normalizeSqlServerPlanXml(
     hasUnconditionalJoin,
     estimatedRows: Number.isFinite(estimatedRows) ? estimatedRows : 0,
     estimatedCost: Number.isFinite(estimatedCost) ? estimatedCost : 0,
+    scannedTables: Array.from(xml.matchAll(/<Object\b[^>]*\bTable="\[\?(\[\^\\\]"\]\*)\]\?"/gi)).map(m => m[1]?.replace(/\[|\]/g, '').split('.').pop()?.toLowerCase() ?? '').filter(Boolean),
     rawPlanSummary: operators.join(' -> ')
   };
 }
