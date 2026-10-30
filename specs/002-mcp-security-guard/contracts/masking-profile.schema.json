@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MaskingProfileConfiguration",
+  "description": "Declarative configuration schema for in-memory data masking rules.",
+  "type": "object",
+  "required": ["profileName", "rules"],
+  "properties": {
+    "profileName": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "targetType", "matcher", "dataType", "strategy", "enabled"],
+        "properties": {
+          "id": { "type": "string" },
+          "targetType": {
+            "type": "string",
+            "enum": ["column_name", "content_pattern"]
+          },
+          "matcher": { "type": "string" },
+          "dataType": {
+            "type": "string",
+            "enum": ["email", "phone", "dpi", "amount", "custom"]
+          },
+          "strategy": {
+            "type": "string",
+            "enum": ["partial", "redact", "mask_amount", "custom"]
+          },
+          "customMask": { "type": "string" },
+          "enabled": { "type": "boolean" }
+        }
+      }
+    }
+  }
+}
