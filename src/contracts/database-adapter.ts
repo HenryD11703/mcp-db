@@ -32,6 +32,7 @@ export interface NormalizedRiskProfile {
   readonly hasUnconditionalJoin: boolean;
   readonly estimatedRows: number;
   readonly estimatedCost: number;
+  readonly scannedTables?: ReadonlyArray<string>;
   readonly rawPlanSummary?: string;
 }
 

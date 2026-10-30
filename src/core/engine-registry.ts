@@ -1,3 +1,9 @@
+import type { OperationalLimitsPolicy, IRateLimiter } from '../contracts/cost-limits.contract.js';
+import { QueryExecutionSupervisor } from './limits/execution-supervisor.js';
+import { defaultOperationalLimitsPolicy } from './limits/default-limits-policy.js';
+import type { EngineRiskThresholds, QueryPlanRiskProfile } from '../contracts/cost-limits.contract.js';
+import { QueryPlanRiskEvaluator } from './limits/risk-evaluator.js';
+import { defaultEngineRiskThresholds } from './limits/default-limits-policy.js';
 import type {
   DatabaseAdapter,
   NormalizedRiskProfile,
@@ -66,7 +72,18 @@ export class AdapterRegistry {
     return results;
   }
 
-  public async validateAndExplain(
+    public async evaluateQueryRisk(
+    adapterId: string,
+    query: ParameterizedQuery,
+    thresholds: EngineRiskThresholds = defaultEngineRiskThresholds
+  ): Promise<QueryPlanRiskProfile> {
+    const adapter = this.requireVerifiedAdapter(adapterId);
+    this.assertQueryValidForDialect(query.sql, adapter.dialect);
+    const evaluator = new QueryPlanRiskEvaluator(adapter);
+    return await evaluator.evaluateRisk(query, adapter.dialect, thresholds);
+  }
+
+public async validateAndExplain(
     adapterId: string,
     query: ParameterizedQuery
   ): Promise<NormalizedRiskProfile> {
@@ -84,7 +101,20 @@ export class AdapterRegistry {
     return await adapter.executeQuery(query);
   }
 
-  public async introspectAdapterSchema(
+    public async validateAndExecuteWithLimits(
+    adapterId: string,
+    query: ParameterizedQuery,
+    requesterId: string,
+    limits: OperationalLimitsPolicy = defaultOperationalLimitsPolicy,
+    rateLimiter?: IRateLimiter
+  ): Promise<QueryExecutionResult & { truncated: boolean }> {
+    const adapter = this.requireVerifiedAdapter(adapterId);
+    this.assertQueryValidForDialect(query.sql, adapter.dialect);
+    const supervisor = new QueryExecutionSupervisor(adapter, rateLimiter);
+    return await supervisor.executeWithLimits(query, requesterId, limits);
+  }
+
+public async introspectAdapterSchema(
     adapterId: string,
     signal?: AbortSignal
   ): Promise<SchemaCatalog> {

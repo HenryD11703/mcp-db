@@ -9,6 +9,7 @@ export interface PostgresPlanNode {
   readonly 'Merge Cond'?: string;
   readonly 'Join Filter'?: string;
   readonly 'Index Cond'?: string;
+  readonly 'Relation Name'?: string;
   readonly Plans?: ReadonlyArray<PostgresPlanNode>;
 }
 
@@ -31,6 +32,7 @@ export function normalizePostgresPlan(
 
   let hasFullScan = false;
   let hasUnconditionalJoin = false;
+  const scannedTables: string[] = [];
   const operators: string[] = [];
 
   const visit = (node: PostgresPlanNode): void => {
@@ -39,6 +41,9 @@ export function normalizePostgresPlan(
 
     if (nodeType === 'Seq Scan') {
       hasFullScan = true;
+      if (node['Relation Name']) {
+        scannedTables.push(node['Relation Name'].toLowerCase());
+      }
     }
 
     if (
@@ -83,6 +88,7 @@ export function normalizePostgresPlan(
     hasUnconditionalJoin,
     estimatedRows: Number.isFinite(estimatedRows) ? estimatedRows : 0,
     estimatedCost: Number.isFinite(estimatedCost) ? estimatedCost : 0,
+    scannedTables,
     rawPlanSummary: operators.join(' -> ')
   };
 }

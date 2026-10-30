@@ -5,18 +5,28 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema
 } from '@modelcontextprotocol/sdk/types.js';
-import type { DatabaseAdapter, QueryParameter } from './contracts/database-adapter.js';
+import type { DatabaseAdapter, EngineDialect, QueryParameter } from './contracts/database-adapter.js';
 import type {
   DelimitedOutputFormat,
   IDataMaskingEngine,
   IZeroTrustSanitizer,
   MaskingProfile
 } from './contracts/security.contract.js';
-import type { IAuditLogger, ISqlSanitizerForAudit } from './contracts/audit.contract.js';
+import type { AuditQueryOutcome, IAuditLogger, ISqlSanitizerForAudit } from './contracts/audit.contract.js';
+import type {
+  EngineRiskThresholds,
+  IPendingApprovalStore,
+  IRateLimiter,
+  OperationalLimitsPolicy,
+  PendingApprovalTicket
+} from './contracts/cost-limits.contract.js';
 import { AdapterRegistry } from './core/engine-registry.js';
 import {
   AuditIntegrityViolationError,
   AuditPersistenceError,
+  CostLimitExceededError,
+  QueryExecutionTimeoutError,
+  RateLimitExceededError,
   SqlSecurityRejectionError,
   SqlSecurityViolationError
 } from './core/errors.js';
@@ -30,10 +40,17 @@ import { AuditLogger } from './core/audit/audit-logger.js';
 import { SqlSanitizerForAudit } from './core/audit/sql-sanitizer.js';
 import { AuditVerifier } from './core/audit/audit-verifier.js';
 import { AuditRotator } from './core/audit/audit-rotator.js';
+import { TwoTierRateLimiter } from './core/limits/rate-limiter.js';
+import { PendingApprovalStore } from './core/limits/pending-approval-store.js';
+import {
+  defaultEngineRiskThresholds,
+  defaultOperationalLimitsPolicy
+} from './core/limits/default-limits-policy.js';
 
 export * from './contracts/database-adapter.js';
 export * from './contracts/security.contract.js';
 export * from './contracts/audit.contract.js';
+export * from './contracts/cost-limits.contract.js';
 export * from './core/errors.js';
 export * from './core/engine-registry.js';
 export * from './core/security/sql-security-guard.js';
@@ -48,6 +65,11 @@ export * from './core/audit/audit-logger.js';
 export * from './core/audit/sql-sanitizer.js';
 export * from './core/audit/audit-verifier.js';
 export * from './core/audit/audit-rotator.js';
+export * from './core/limits/risk-evaluator.js';
+export * from './core/limits/rate-limiter.js';
+export * from './core/limits/execution-supervisor.js';
+export * from './core/limits/pending-approval-store.js';
+export * from './core/limits/default-limits-policy.js';
 export * from './core/validation/lexical-scanner.js';
 export * from './core/validation/ast-validator.js';
 export * from './core/validation/corpus-schema.js';
@@ -65,6 +87,10 @@ export interface DatabaseMcpServerOptions {
   readonly auditLogger?: IAuditLogger;
   readonly sqlSanitizer?: ISqlSanitizerForAudit;
   readonly auditLogPath?: string;
+  readonly rateLimiter?: IRateLimiter;
+  readonly limitsPolicy?: OperationalLimitsPolicy;
+  readonly engineThresholds?: EngineRiskThresholds;
+  readonly approvalStore?: IPendingApprovalStore;
 }
 
 const QUERY_PARAMS_SCHEMA = {
@@ -97,10 +123,20 @@ export function createDatabaseMcpServer(
     options.auditLogger ?? new AuditLogger({ logFilePath: auditLogPath });
   const sqlSanitizer = options.sqlSanitizer ?? new SqlSanitizerForAudit();
 
+  const limitsPolicy = options.limitsPolicy ?? defaultOperationalLimitsPolicy;
+  const engineThresholds = options.engineThresholds ?? defaultEngineRiskThresholds;
+  const rateLimiter =
+    options.rateLimiter ??
+    new TwoTierRateLimiter({
+      clientLimitPerMinute: limitsPolicy.rateLimitPerClientPerMinute,
+      globalLimitPerMinute: limitsPolicy.rateLimitGlobalPerMinute
+    });
+  const approvalStore = options.approvalStore ?? new PendingApprovalStore();
+
   const server = new Server(
     {
       name: 'db-mcp-node',
-      version: '0.3.0'
+      version: '0.4.0'
     },
     {
       capabilities: {
@@ -114,7 +150,7 @@ export function createDatabaseMcpServer(
       {
         name: 'query_database',
         description:
-          'Executes a strictly read-only SELECT query after AST validation, masks sensitive PII/financial data in memory, returns structurally delimited zero-trust records, and logs an immutable audit event.',
+          'Executes a strictly read-only SELECT query after AST validation and execution plan cost evaluation, masks sensitive PII/financial data in memory, returns structurally delimited zero-trust records, and logs an immutable audit event.',
         inputSchema: {
           type: 'object',
           required: ['adapterId', 'sql'],
@@ -154,6 +190,21 @@ export function createDatabaseMcpServer(
             adapterId: { type: 'string' }
           }
         }
+      },
+      {
+        name: 'get_query_result',
+        description:
+          'Passively retrieves the execution status or masked results of a query that was previously queued for human approval (PENDING_APPROVAL). Excludes any approval capability.',
+        inputSchema: {
+          type: 'object',
+          required: ['approvalId'],
+          properties: {
+            approvalId: {
+              type: 'string',
+              description: 'The unique approval ticket identifier (e.g. appr_...)'
+            }
+          }
+        }
       }
     ]
   }));
@@ -171,9 +222,11 @@ export function createDatabaseMcpServer(
     let databaseName: string = 'default';
 
     try {
-      const adapter = registry.getAdapter(adapterId);
-      adapterEngine = adapter.dialect;
-      databaseName = adapter.adapterId;
+      if (adapterId) {
+        const adapter = registry.getAdapter(adapterId);
+        adapterEngine = adapter.dialect;
+        databaseName = adapter.adapterId;
+      }
     } catch {
       // If adapter is not registered yet, default to placeholder
     }
@@ -187,16 +240,123 @@ export function createDatabaseMcpServer(
 
         const evaluatedSql = sqlSanitizer.sanitizeSqlForAudit(rawSql);
 
+        // 1. Evaluate execution plan risk prior to execution
+        const riskProfile = await registry.evaluateQueryRisk(
+          adapterId,
+          { sql: rawSql, params },
+          engineThresholds
+        );
+
+        // 2. Critical Block: prohibit execution completely
+        if (riskProfile.severity === 'CRITICAL_BLOCK') {
+          const rejectionReason = `BLOCKED_BY_COST: ${riskProfile.warnings.join('; ')}`;
+          await auditLogger.logEvent({
+            correlationId,
+            requesterId,
+            timestamp: new Date().toISOString(),
+            engine: adapterEngine,
+            database: databaseName,
+            evaluatedSql,
+            status: 'BLOCKED_BY_COST',
+            rejectionReason,
+            executionTimeMs: Number((performance.now() - startTime).toFixed(2)),
+            rowCount: 0
+          });
+
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(
+                  {
+                    status: 'BLOCKED_BY_COST',
+                    message: 'Consulta bloqueada preventivamente por exceder los umbrales de riesgo.',
+                    warnings: riskProfile.warnings,
+                    riskProfile
+                  },
+                  null,
+                  2
+                )
+              }
+            ]
+          };
+        }
+
+        // 3. Medium Caution: route asynchronously to human approval
+        if (riskProfile.severity === 'MEDIUM_CAUTION') {
+          const approvalId = `appr_${randomUUID()}`;
+          const ticket: PendingApprovalTicket = {
+            approvalId,
+            correlationId,
+            requesterId,
+            engine: adapterEngine as EngineDialect,
+            database: databaseName,
+            sql: rawSql,
+            params,
+            riskProfile,
+            status: 'PENDING',
+            createdAt: new Date().toISOString(),
+            expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString()
+          };
+          await approvalStore.saveTicket(ticket);
+
+          await auditLogger.logEvent({
+            correlationId,
+            requesterId,
+            timestamp: new Date().toISOString(),
+            engine: adapterEngine,
+            database: databaseName,
+            evaluatedSql,
+            status: 'PENDING_APPROVAL',
+            rejectionReason: riskProfile.warnings.join('; '),
+            executionTimeMs: Number((performance.now() - startTime).toFixed(2)),
+            rowCount: 0
+          });
+
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(
+                  {
+                    status: 'PENDING_APPROVAL',
+                    approvalId,
+                    riskSummary: {
+                      estimatedRows: riskProfile.estimatedRows,
+                      estimatedCost: riskProfile.estimatedCost,
+                      warnings: riskProfile.warnings
+                    },
+                    message: `La consulta supera el umbral de precaución y requiere autorización humana explícita. Un operador humano debe autorizarla mediante: db-mcp approve ${approvalId}`
+                  },
+                  null,
+                  2
+                )
+              }
+            ]
+          };
+        }
+
+        // 4. Low Risk: execute with operational limits (timeouts, rows ceiling, rate limits)
         try {
-          const rawResult = await registry.validateAndExecute(adapterId, { sql: rawSql, params });
+          const rawResult = await registry.validateAndExecuteWithLimits(
+            adapterId,
+            { sql: rawSql, params },
+            requesterId,
+            limitsPolicy,
+            rateLimiter
+          );
           const executionTimeMs = Number((performance.now() - startTime).toFixed(2));
           const rowCount = rawResult.rows.length;
 
-          // Mask and encapsulate results for MCP output
           const maskedDataset = maskingEngine.maskDataset(rawResult, options.maskingProfile);
           const encapsulated = sanitizer.encapsulateDataset(maskedDataset, { format });
 
-          // Audit successful execution
+          let outputText = encapsulated.formattedText;
+          if (rawResult.truncated) {
+            outputText += `\n<!-- ADVERTENCIA: El conjunto de resultados excedió el límite configurado de ${limitsPolicy.maxRowsLimit} filas y fue acotado de forma segura (truncated: true). -->`;
+          }
+
           await auditLogger.logEvent({
             correlationId,
             requesterId,
@@ -211,19 +371,25 @@ export function createDatabaseMcpServer(
           });
 
           return {
-            content: [{ type: 'text', text: encapsulated.formattedText }]
+            content: [{ type: 'text', text: outputText }]
           };
         } catch (innerErr) {
           const executionTimeMs = Number((performance.now() - startTime).toFixed(2));
           let rejectionReason = innerErr instanceof Error ? innerErr.message : String(innerErr);
-          let outcomeStatus: 'REJECTED_BY_GUARD' | 'CANCELLED_BY_TIMEOUT' = 'REJECTED_BY_GUARD';
+          let outcomeStatus: AuditQueryOutcome = 'REJECTED_BY_GUARD';
 
-          if (innerErr instanceof SqlSecurityRejectionError || innerErr instanceof SqlSecurityViolationError) {
+          if (innerErr instanceof QueryExecutionTimeoutError) {
+            outcomeStatus = 'CANCELLED_BY_TIMEOUT';
+          } else if (innerErr instanceof RateLimitExceededError) {
+            outcomeStatus = 'REJECTED_BY_GUARD';
+          } else if (
+            innerErr instanceof SqlSecurityRejectionError ||
+            innerErr instanceof SqlSecurityViolationError
+          ) {
             outcomeStatus = 'REJECTED_BY_GUARD';
             rejectionReason = `${innerErr.reasonCode}: ${innerErr.message}`;
           }
 
-          // Immutably log rejection
           await auditLogger.logEvent({
             correlationId,
             requesterId,
@@ -238,6 +404,128 @@ export function createDatabaseMcpServer(
           });
 
           throw innerErr;
+        }
+      }
+
+      if (request.params.name === 'get_query_result') {
+        const approvalId = String(args['approvalId'] ?? '');
+        const ticket = await approvalStore.getTicket(approvalId);
+
+        if (!ticket) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text',
+                text: `[ERROR] No se encontró ninguna solicitud con ID de aprobación "${approvalId}".`
+              }
+            ]
+          };
+        }
+
+        if (ticket.status === 'PENDING') {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(
+                  {
+                    status: 'PENDING_APPROVAL',
+                    approvalId,
+                    message:
+                      'La consulta aún se encuentra en espera de autorización por parte de un operador humano.'
+                  },
+                  null,
+                  2
+                )
+              }
+            ]
+          };
+        }
+
+        if (ticket.status === 'REJECTED') {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(
+                  {
+                    status: 'REJECTED',
+                    approvalId,
+                    message: 'La consulta fue rechazada por el operador humano.',
+                    reason: ticket.resolutionReason
+                  },
+                  null,
+                  2
+                )
+              }
+            ]
+          };
+        }
+
+        if (ticket.status === 'EXPIRED') {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(
+                  {
+                    status: 'EXPIRED',
+                    approvalId,
+                    message: 'El ticket de aprobación ha expirado tras superar su tiempo de vida (TTL).'
+                  },
+                  null,
+                  2
+                )
+              }
+            ]
+          };
+        }
+
+        if (ticket.status === 'APPROVED') {
+          const cached = await approvalStore.getApprovedResult(approvalId);
+          if (cached) {
+            const masked = maskingEngine.maskDataset({ ...cached, durationMs: 0 }, options.maskingProfile);
+            const encapsulated = sanitizer.encapsulateDataset(masked, { format: defaultFormat });
+            return {
+              content: [{ type: 'text', text: encapsulated.formattedText }]
+            };
+          }
+
+          // Execute query if not yet executed
+          const rawResult = await registry.validateAndExecute(ticket.database, {
+            sql: ticket.sql,
+            params: ticket.params
+          });
+          const masked = maskingEngine.maskDataset(rawResult, options.maskingProfile);
+          const encapsulated = sanitizer.encapsulateDataset(masked, { format: defaultFormat });
+
+          await approvalStore.saveApprovedResult({
+            approvalId,
+            columns: rawResult.columns,
+            rows: rawResult.rows,
+            rowCount: rawResult.rowCount,
+            truncated: rawResult.rows.length > limitsPolicy.maxRowsLimit,
+            executedAt: new Date().toISOString(),
+            expiresAt: ticket.expiresAt
+          });
+
+          await auditLogger.logEvent({
+            correlationId: ticket.correlationId,
+            requesterId,
+            timestamp: new Date().toISOString(),
+            engine: ticket.engine,
+            database: ticket.database,
+            evaluatedSql: sqlSanitizer.sanitizeSqlForAudit(ticket.sql),
+            status: 'EXECUTED',
+            rejectionReason: null,
+            executionTimeMs: Number((performance.now() - startTime).toFixed(2)),
+            rowCount: rawResult.rowCount
+          });
+
+          return {
+            content: [{ type: 'text', text: encapsulated.formattedText }]
+          };
         }
       }
 

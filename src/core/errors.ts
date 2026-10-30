@@ -123,3 +123,63 @@ export class AuditIntegrityViolationError extends Error {
   }
 }
 
+export class CostLimitExceededError extends Error {
+  public readonly reasonCode: string;
+  public readonly metrics: {
+    readonly estimatedRows?: number;
+    readonly estimatedCost?: number;
+    readonly fullScanTable?: string;
+  };
+
+  constructor(
+    message: string,
+    reasonCode: string,
+    metrics: { estimatedRows?: number; estimatedCost?: number; fullScanTable?: string } = {}
+  ) {
+    super(`Cost limit exceeded [${reasonCode}]: ${message}`);
+    this.name = 'CostLimitExceededError';
+    this.reasonCode = reasonCode;
+    this.metrics = metrics;
+  }
+}
+
+export class QueryExecutionTimeoutError extends Error {
+  public readonly timeoutMs: number;
+  public readonly adapterId: string;
+
+  constructor(adapterId: string, timeoutMs: number) {
+    super(`Query execution timed out after ${timeoutMs}ms on adapter "${adapterId}". Cancel signal dispatched.`);
+    this.name = 'QueryExecutionTimeoutError';
+    this.adapterId = adapterId;
+    this.timeoutMs = timeoutMs;
+  }
+}
+
+export class RateLimitExceededError extends Error {
+  public readonly level: 'CLIENT' | 'GLOBAL';
+  public readonly limit: number;
+  public readonly retryAfterSeconds: number;
+
+  constructor(level: 'CLIENT' | 'GLOBAL', limit: number, retryAfterSeconds: number) {
+    super(
+      `Rate limit exceeded (${level} level: max ${limit} queries/min). Please retry after ${retryAfterSeconds}s.`
+    );
+    this.name = 'RateLimitExceededError';
+    this.level = level;
+    this.limit = limit;
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
+
+export class PendingApprovalRequiredError extends Error {
+  public readonly approvalId: string;
+  public readonly riskSummary: Record<string, unknown>;
+
+  constructor(approvalId: string, riskSummary: Record<string, unknown>) {
+    super(`Query requires explicit human operator approval [Ticket ID: ${approvalId}].`);
+    this.name = 'PendingApprovalRequiredError';
+    this.approvalId = approvalId;
+    this.riskSummary = riskSummary;
+  }
+}
+
