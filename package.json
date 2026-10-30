@@ -1,0 +1,46 @@
+{
+  "name": "db-mcp-node",
+  "version": "0.1.0",
+  "description": "Read-only relational database MCP server with strict DatabaseAdapter contract and adversarial security suite",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "bin": {
+    "audit-verify": "dist/src/bin/audit-verify.js",
+    "db-mcp": "dist/src/bin/db-mcp.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:audit": "vitest run tests/unit/audit-*.spec.ts tests/unit/sql-sanitizer-for-audit.spec.ts",
+    "test:limits": "vitest run tests/unit/limits",
+    "test:rate-limit": "vitest run tests/unit/limits/rate-limiter.test.ts",
+    "test:approval": "vitest run tests/unit/limits/pending-approval-store.test.ts tests/contract/approval-flow.test.ts",
+    "cli:db-mcp": "node dist/src/bin/db-mcp.js",
+    "audit:verify": "tsx src/bin/audit-verify.ts",
+    "test:adversarial": "vitest run tests/adversarial",
+    "test:adversarial-rows": "vitest run tests/adversarial/malicious-rows.spec.ts",
+    "test:contract": "vitest run tests/contract",
+    "test:unit": "vitest run tests/unit",
+    "test:security": "vitest run tests/unit/sql-security-guard.spec.ts tests/unit/startup-preflight-gate.spec.ts",
+    "test:masking": "vitest run tests/unit/data-masking-engine.spec.ts tests/unit/zero-trust-sanitizer.spec.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "mssql": "^11.0.1",
+    "node-sql-parser": "^5.3.6",
+    "pg": "^8.13.1",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/mssql": "^9.1.5",
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
