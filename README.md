@@ -179,6 +179,20 @@ You can configure multiple databases using a single configuration file:
 
 ---
 
+## Interactive Auto-Installer (`npm run install:mcp`)
+
+The project includes an interactive setup wizard that automatically discovers your installed AI agents (**Google Antigravity**, **Claude Code CLI**, and **Claude Desktop**), prompts for database connection strings, and safely writes the server configuration directly into their configuration files (creating `.bak` backups automatically):
+
+```bash
+# Run the interactive configuration wizard:
+npm run install:mcp
+
+# Or via the db-mcp binary:
+node dist/src/bin/db-mcp.js install
+```
+
+---
+
 ## Connecting to MCP Clients
 
 ### Claude Desktop (`claude_desktop_config.json`)

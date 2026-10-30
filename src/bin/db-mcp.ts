@@ -8,9 +8,15 @@ import { createDatabaseMcpServer, bootstrapAdapters } from '../index.js';
 import { PostgresAdapter, createNodePostgresDriverPool } from '../adapters/postgres/postgres-adapter.js';
 import { SqlServerAdapter, createMssqlDriverPool } from '../adapters/sqlserver/sqlserver-adapter.js';
 import type { DatabaseAdapter } from '../contracts/database-adapter.js';
+import { runInteractiveInstaller } from './installer.js';
 
 export async function handleCli(args: ReadonlyArray<string>): Promise<number> {
   const command = args[0]?.toLowerCase();
+
+  if (command === 'install' || command === 'configure' || command === 'init') {
+    return await runInteractiveInstaller(args.slice(1));
+  }
+
   const store = new PendingApprovalStore();
   const auditLogger = new AuditLogger({
     logFilePath: process.env['AUDIT_LOG_PATH'] || 'audit.jsonl'
@@ -164,10 +170,11 @@ export async function handleCli(args: ReadonlyArray<string>): Promise<number> {
   }
 
   console.log(`Uso de CLI db-mcp:`);
-  console.log(`  db-mcp start [--config <archivo.json>]`);
-  console.log(`  db-mcp list-pending`);
-  console.log(`  db-mcp approve <approvalId> [--reason <texto>]`);
-  console.log(`  db-mcp reject <approvalId> [--reason <texto>]`);
+  console.log(`  db-mcp install               (Asistente interactivo de instalación en Agy, Claude Code, etc.)`);
+  console.log(`  db-mcp start [--config <cfg>] (Inicia el servidor MCP sobre Stdio)`);
+  console.log(`  db-mcp list-pending          (Lista consultas en cuarentena)`);
+  console.log(`  db-mcp approve <approvalId>  (Aprueba consulta retenida)`);
+  console.log(`  db-mcp reject <approvalId>   (Rechaza consulta retenida)`);
   return 0;
 }
 

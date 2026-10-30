@@ -23,6 +23,7 @@
     "test:rate-limit": "vitest run tests/unit/limits/rate-limiter.test.ts",
     "test:approval": "vitest run tests/unit/limits/pending-approval-store.test.ts tests/contract/approval-flow.test.ts",
     "cli:db-mcp": "node dist/src/bin/db-mcp.js",
+    "install:mcp": "node dist/src/bin/db-mcp.js install",
     "audit:verify": "tsx src/bin/audit-verify.ts",
     "test:adversarial": "vitest run tests/adversarial",
     "test:adversarial-rows": "vitest run tests/adversarial/malicious-rows.spec.ts",
