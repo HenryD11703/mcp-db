@@ -1,6 +1,13 @@
+import { readFileSync, existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { PendingApprovalStore } from '../core/limits/pending-approval-store.js';
 import { AuditLogger } from '../core/audit/audit-logger.js';
 import { SqlSanitizerForAudit } from '../core/audit/sql-sanitizer.js';
+import { createDatabaseMcpServer, bootstrapAdapters } from '../index.js';
+import { PostgresAdapter, createNodePostgresDriverPool } from '../adapters/postgres/postgres-adapter.js';
+import { SqlServerAdapter, createMssqlDriverPool } from '../adapters/sqlserver/sqlserver-adapter.js';
+import type { DatabaseAdapter } from '../contracts/database-adapter.js';
 
 export async function handleCli(args: ReadonlyArray<string>): Promise<number> {
   const command = args[0]?.toLowerCase();
@@ -10,7 +17,80 @@ export async function handleCli(args: ReadonlyArray<string>): Promise<number> {
   });
   const sanitizer = new SqlSanitizerForAudit();
 
-  if (command === 'list-pending') {
+  const isAutoStart =
+    !command &&
+    Boolean(
+      process.env['POSTGRES_URL'] ||
+      process.env['PG_URL'] ||
+      process.env['SQLSERVER_URL'] ||
+      process.env['MSSQL_URL'] ||
+      process.env['MCP_CONFIG_PATH']
+    );
+
+  if (command === 'start' || command === 'serve' || isAutoStart) {
+    const configIdx = args.indexOf('--config');
+    const configPath = configIdx !== -1 ? args[configIdx + 1] : process.env['MCP_CONFIG_PATH'];
+    const adapters: DatabaseAdapter[] = [];
+
+    if (configPath && existsSync(resolve(process.cwd(), configPath))) {
+      try {
+        const raw = readFileSync(resolve(process.cwd(), configPath), 'utf8');
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed.adapters)) {
+          for (const item of parsed.adapters) {
+            if (item.type === 'postgres') {
+              const pool = createNodePostgresDriverPool({ connectionString: item.connectionString });
+              adapters.push(new PostgresAdapter(item.id || 'postgres', pool));
+            } else if (item.type === 'sqlserver') {
+              const pool = await createMssqlDriverPool(item.connectionString || item.config);
+              adapters.push(new SqlServerAdapter(item.id || 'sqlserver', pool));
+            }
+          }
+        }
+      } catch (err) {
+        console.error(`[DB-MCP ERROR] Error al cargar archivo de configuración "${configPath}":`, err);
+        return 1;
+      }
+    } else {
+      const pgUrl = process.env['POSTGRES_URL'] || process.env['PG_URL'];
+      if (pgUrl) {
+        const pool = createNodePostgresDriverPool({ connectionString: pgUrl });
+        const adapterId = process.env['PG_ADAPTER_ID'] || 'postgres';
+        adapters.push(new PostgresAdapter(adapterId, pool));
+      }
+
+      const mssqlUrl = process.env['SQLSERVER_URL'] || process.env['MSSQL_URL'];
+      if (mssqlUrl) {
+        const pool = await createMssqlDriverPool(mssqlUrl);
+        const adapterId = process.env['MSSQL_ADAPTER_ID'] || 'sqlserver';
+        adapters.push(new SqlServerAdapter(adapterId, pool));
+      }
+    }
+
+    if (adapters.length === 0) {
+      console.error(
+        '[DB-MCP ERROR] No se configuraron adaptadores de base de datos.\n' +
+        'Defina POSTGRES_URL / SQLSERVER_URL en variables de entorno o use --config <archivo.json>.'
+      );
+      return 1;
+    }
+
+    try {
+      console.error(`[DB-MCP] Inicializando ${adapters.length} adaptador(es) con preflight gate...`);
+      const registry = await bootstrapAdapters(adapters);
+      const server = createDatabaseMcpServer(registry);
+
+      const transport = new StdioServerTransport();
+      await server.connect(transport);
+      console.error('[DB-MCP] Servidor MCP conectado exitosamente sobre Stdio.');
+      return new Promise<number>(() => {}); // Keep alive
+    } catch (err) {
+      console.error('[DB-MCP ERROR] Fallo al iniciar servidor MCP:', err instanceof Error ? err.message : err);
+      return 1;
+    }
+  }
+
+  if (command === 'list-pending' || command === 'list') {
     const pending = await store.listPendingTickets();
     if (pending.length === 0) {
       console.log('[DB-MCP] No hay consultas pendientes de aprobación.');
@@ -84,6 +164,7 @@ export async function handleCli(args: ReadonlyArray<string>): Promise<number> {
   }
 
   console.log(`Uso de CLI db-mcp:`);
+  console.log(`  db-mcp start [--config <archivo.json>]`);
   console.log(`  db-mcp list-pending`);
   console.log(`  db-mcp approve <approvalId> [--reason <texto>]`);
   console.log(`  db-mcp reject <approvalId> [--reason <texto>]`);

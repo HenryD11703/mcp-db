@@ -27,6 +27,7 @@
     "test:adversarial": "vitest run tests/adversarial",
     "test:adversarial-rows": "vitest run tests/adversarial/malicious-rows.spec.ts",
     "test:contract": "vitest run tests/contract",
+    "test:discovery": "vitest run tests/unit/discovery tests/unit/glossary tests/contract/mcp-discovery.spec.ts tests/contract/catalog-adapters.spec.ts tests/adversarial/discovery.spec.ts",
     "test:unit": "vitest run tests/unit",
     "test:security": "vitest run tests/unit/sql-security-guard.spec.ts tests/unit/startup-preflight-gate.spec.ts",
     "test:masking": "vitest run tests/unit/data-masking-engine.spec.ts tests/unit/zero-trust-sanitizer.spec.ts"
@@ -36,6 +37,7 @@
     "mssql": "^11.0.1",
     "node-sql-parser": "^5.3.6",
     "pg": "^8.13.1",
+    "yaml": "^2.9.1",
     "zod": "^3.24.1"
   },
   "devDependencies": {

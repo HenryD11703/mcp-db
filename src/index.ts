@@ -21,6 +21,10 @@ import type {
   PendingApprovalTicket
 } from './contracts/cost-limits.contract.js';
 import { AdapterRegistry } from './core/engine-registry.js';
+import { DiscoveryTools } from './core/tools/discovery-tools.js';
+import { FederatedTools } from './core/tools/federated-tools.js';
+import { FederatedQueryOrchestrator } from './core/federation/federated-orchestrator.js';
+import type { ISessionPseudonymContext } from './contracts/federated-query.contract.js';
 import {
   AuditIntegrityViolationError,
   AuditPersistenceError,
@@ -51,6 +55,7 @@ export * from './contracts/database-adapter.js';
 export * from './contracts/security.contract.js';
 export * from './contracts/audit.contract.js';
 export * from './contracts/cost-limits.contract.js';
+export * from './contracts/legacy-discovery.contract.js';
 export * from './core/errors.js';
 export * from './core/engine-registry.js';
 export * from './core/security/sql-security-guard.js';
@@ -74,6 +79,22 @@ export * from './core/validation/lexical-scanner.js';
 export * from './core/validation/ast-validator.js';
 export * from './core/validation/corpus-schema.js';
 export * from './core/validation/parser-benchmark.js';
+export * from './core/discovery/catalog-service.js';
+export * from './core/discovery/relationship-inference-engine.js';
+export * from './core/discovery/inference-scoring.js';
+export * from './core/discovery/name-tokenizer.js';
+export * from './core/discovery/table-resolution.js';
+export * from './core/glossary/glossary-loader.js';
+export * from './core/glossary/glossary-index.js';
+export * from './core/glossary/glossary-service.js';
+export * from './core/tools/discovery-tools.js';
+export * from './contracts/federated-query.contract.js';
+export * from './core/security/session-pseudonym.js';
+export * from './core/federation/key-extractor.js';
+export * from './core/federation/parameter-binder.js';
+export * from './core/federation/memory-join.js';
+export * from './core/federation/federated-orchestrator.js';
+export * from './core/tools/federated-tools.js';
 export * from './adapters/postgres/postgres-adapter.js';
 export * from './adapters/postgres/postgres-plan-parser.js';
 export * from './adapters/sqlserver/sqlserver-adapter.js';
@@ -91,6 +112,12 @@ export interface DatabaseMcpServerOptions {
   readonly limitsPolicy?: OperationalLimitsPolicy;
   readonly engineThresholds?: EngineRiskThresholds;
   readonly approvalStore?: IPendingApprovalStore;
+  /** Overrides the discovery tools (catalog, relationship inference, business glossary). */
+  readonly discoveryTools?: DiscoveryTools;
+  /** Glossary file path; defaults to GLOSSARY_PATH or docs/glossary.yaml. */
+  readonly glossaryPath?: string;
+  readonly federatedTools?: FederatedTools;
+  readonly pseudonymContext?: ISessionPseudonymContext;
 }
 
 const QUERY_PARAMS_SCHEMA = {
@@ -132,6 +159,25 @@ export function createDatabaseMcpServer(
       globalLimitPerMinute: limitsPolicy.rateLimitGlobalPerMinute
     });
   const approvalStore = options.approvalStore ?? new PendingApprovalStore();
+  const discovery =
+    options.discoveryTools ??
+    new DiscoveryTools({
+      registry,
+      auditLogger,
+      sanitizer,
+      ...(options.glossaryPath ? { glossaryPath: options.glossaryPath } : {})
+    });
+
+  const federatedTools =
+    options.federatedTools ??
+    new FederatedTools(
+      new FederatedQueryOrchestrator({
+        registry,
+        auditLogger,
+        maskingEngine,
+        pseudonymContext: options.pseudonymContext
+      })
+    );
 
   const server = new Server(
     {
@@ -147,6 +193,8 @@ export function createDatabaseMcpServer(
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: [
+      ...discovery.definitions(),
+      ...federatedTools.definitions(),
       {
         name: 'query_database',
         description:
@@ -232,6 +280,14 @@ export function createDatabaseMcpServer(
     }
 
     try {
+      if (discovery.handles(request.params.name)) {
+        return await discovery.call(request.params.name, args, { requesterId, correlationId });
+      }
+
+      if (federatedTools.handles(request.params.name)) {
+        return await federatedTools.call(request.params.name, args, { requesterId, correlationId });
+      }
+
       if (request.params.name === 'query_database') {
         const rawSql = String(args['sql'] ?? '');
         const params = (args['params'] as ReadonlyArray<QueryParameter> | undefined) ?? [];
