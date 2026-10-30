@@ -10,7 +10,7 @@ Thumbs.db
 *.swp
 .vscode/
 .idea/
-.db-mcp/
-audit/
+/audit/
+/.db-mcp/
 ~$*
 audit*.jsonl
