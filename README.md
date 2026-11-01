@@ -50,7 +50,7 @@ db-mcp test            # connect, prove the user is read-only, check plan analys
 ```
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/HenryD11703/mcp-db/main/docs/img/install.svg" alt="Installation flow: npm install, db-mcp install, credentials file and agent configuration" width="900">
+  <img src="docs/img/install.svg" alt="Installation flow: npm install, db-mcp install, credentials file and agent configuration" width="900">
 </p>
 
 - Credentials live **once** in `~/.db-mcp/config.json` (owner-only, `0600`). Agent config files only say `db-mcp start`, with no secrets.
@@ -94,7 +94,7 @@ GRANT SHOWPLAN TO mcp_ro;   -- required, see below
 ## How a request is protected
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/HenryD11703/mcp-db/main/docs/img/architecture.svg" alt="db-mcp request pipeline: MCP client, nine protection stages, read-only databases" width="900">
+  <img src="docs/img/architecture.svg" alt="db-mcp request pipeline: MCP client, nine protection stages, read-only databases" width="900">
 </p>
 
 ### 1. Read-only AST guard
@@ -118,7 +118,7 @@ GRANT SHOWPLAN TO mcp_ro;   -- required, see below
 - `get_query_result` lets the agent poll a ticket and receive masked rows once approved.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/HenryD11703/mcp-db/main/docs/img/query-flow.svg" alt="Query decision flow: execute, quarantine for approval, or block by cost" width="900">
+  <img src="docs/img/query-flow.svg" alt="Query decision flow: execute, quarantine for approval, or block by cost" width="900">
 </p>
 
 ### 5. In-memory masking
@@ -144,7 +144,7 @@ GRANT SHOWPLAN TO mcp_ro;   -- required, see below
 - Join keys from the source are treated as untrusted and bound as typed parameters (`$1` / `@p1`), which blocks second-order SQL injection.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/HenryD11703/mcp-db/main/docs/img/federation.svg" alt="Federated query: source keys, typed parameters into the target engine, in-memory join, pseudonymization" width="900">
+  <img src="docs/img/federation.svg" alt="Federated query: source keys, typed parameters into the target engine, in-memory join, pseudonymization" width="900">
 </p>
 
 ---
