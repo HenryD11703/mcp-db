@@ -5,13 +5,16 @@ import { resolve, dirname } from 'node:path';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
+const DB = process.env.BENCH_SPEC === 'large' ? 'bench_large' : 'bench';
+const SUF = process.env.BENCH_SPEC === 'large' ? '-large' : '';
+
 export const BENCH_ENV = {
-  POSTGRES_URL: 'postgresql://bench_ro:RoBench%232026@localhost:15432/bench',
-  SQLSERVER_URL: 'Server=localhost,14330;Database=bench;User Id=bench_ro;Password=RoBench#2026;TrustServerCertificate=true;',
+  POSTGRES_URL: `postgresql://bench_ro:RoBench%232026@localhost:15432/${DB}`,
+  SQLSERVER_URL: `Server=localhost,14330;Database=${DB};User Id=bench_ro;Password=RoBench#2026;TrustServerCertificate=true;`,
   PG_ADAPTER_ID: 'pg',
   MSSQL_ADAPTER_ID: 'mssql',
-  AUDIT_LOG_PATH: resolve(root, 'bench/.out/audit.jsonl'),
-  PENDING_APPROVAL_STORE_PATH: resolve(root, 'bench/.out/pending.json')
+  AUDIT_LOG_PATH: resolve(root, `bench/.out/audit${SUF}.jsonl`),
+  PENDING_APPROVAL_STORE_PATH: resolve(root, `bench/.out/pending${SUF}.json`)
 };
 
 export async function connect(env = BENCH_ENV) {

@@ -1,7 +1,9 @@
 // Deterministic baseline: how much of the schema do the discovery tools alone recover?
 import { performance } from 'node:perf_hooks';
 import { connect } from './mcp-client.mjs';
-import { tables } from './spec.mjs';
+import { spec } from './spec-select.mjs';
+
+const { tables } = spec;
 import { score } from './score.mjs';
 
 const s = await connect();
@@ -11,9 +13,9 @@ for (const adapterId of ['pg', 'mssql']) {
   report[adapterId] = {};
   for (const minConfidence of [0.5, 0.7, 0.85]) {
     const t0 = performance.now();
-    const r = await s.call('infer_table_relationships', { adapterId, tables: names, minConfidence });
+    const r = await s.call('infer_table_relationships', { adapterId, minConfidence });
     const ms = Math.round(performance.now() - t0);
-    if (!r.json) {
+    if (!r.json?.relationships) {
       report[adapterId][minConfidence] = { error: r.text.slice(0, 300) };
       continue;
     }

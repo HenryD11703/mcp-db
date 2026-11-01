@@ -15,7 +15,7 @@ if (tool === 'tools') {
 } else {
   const r = await s.call(tool, args);
   mkdirSync(new URL('./.out/', import.meta.url), { recursive: true });
-  appendFileSync(new URL(`./.out/calls-${args.adapterId ?? 'none'}.log`, import.meta.url), `${tool}\t${r.isError ? 'ERROR' : 'ok'}\n`);
+  appendFileSync(new URL(`./.out/calls-${args.adapterId ?? 'none'}${process.env.BENCH_SPEC === 'large' ? '-large' : ''}.log`, import.meta.url), `${tool}\t${r.isError ? 'ERROR' : 'ok'}\n`);
   console.log(r.text);
 }
 await s.close();

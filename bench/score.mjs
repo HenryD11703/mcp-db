@@ -1,4 +1,6 @@
-import { truth } from './spec.mjs';
+import { spec } from './spec-select.mjs';
+
+const { truth } = spec;
 
 const norm = (s) => s.toLowerCase();
 export const edgeKey = (child, parent) => `${norm(child)}->${norm(parent)}`;
