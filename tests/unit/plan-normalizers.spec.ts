@@ -35,6 +35,59 @@ describe('Execution Plan Normalizers (PostgreSQL EXPLAIN JSON & SQL Server SHOWP
     expect(profile.estimatedCost).toBe(1245.75);
   });
 
+  it('does not flag a Nested Loop whose parameterized index lookup sits under Memoize', () => {
+    const explainJson = [
+      {
+        Plan: {
+          'Node Type': 'Nested Loop',
+          'Join Type': 'Left',
+          'Plan Rows': 150,
+          'Total Cost': 22.18,
+          Plans: [
+            { 'Node Type': 'Seq Scan', 'Relation Name': 'art_mstr', 'Plan Rows': 150, 'Total Cost': 3.5 },
+            {
+              'Node Type': 'Memoize',
+              'Plan Rows': 1,
+              'Total Cost': 0.49,
+              Plans: [
+                {
+                  'Node Type': 'Index Only Scan',
+                  'Relation Name': 'prv_mstr',
+                  'Index Cond': '(cod_prov = c.cod_prov)',
+                  'Plan Rows': 1,
+                  'Total Cost': 0.48
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ];
+    expect(normalizePostgresPlan(explainJson, 'postgres-test').hasUnconditionalJoin).toBe(false);
+  });
+
+  it('still flags a Nested Loop of two scans with no join condition anywhere', () => {
+    const explainJson = [
+      {
+        Plan: {
+          'Node Type': 'Nested Loop',
+          'Plan Rows': 90000,
+          'Total Cost': 5000,
+          Plans: [
+            { 'Node Type': 'Seq Scan', 'Relation Name': 'a', 'Plan Rows': 300, 'Total Cost': 10 },
+            {
+              'Node Type': 'Materialize',
+              'Plan Rows': 300,
+              'Total Cost': 12,
+              Plans: [{ 'Node Type': 'Seq Scan', 'Relation Name': 'b', 'Plan Rows': 300, 'Total Cost': 10 }]
+            }
+          ]
+        }
+      }
+    ];
+    expect(normalizePostgresPlan(explainJson, 'postgres-test').hasUnconditionalJoin).toBe(true);
+  });
+
   it('normalizes PostgreSQL Index Scan with Hash Cond join as low-risk', () => {
     const explainJson = [
       {

@@ -13,6 +13,10 @@ export interface PostgresPlanNode {
   readonly Plans?: ReadonlyArray<PostgresPlanNode>;
 }
 
+function hasIndexCondition(node: PostgresPlanNode): boolean {
+  return Boolean(node['Index Cond']) || (node.Plans ?? []).some(hasIndexCondition);
+}
+
 /**
  * Normalizes PostgreSQL `EXPLAIN (FORMAT JSON)` output into a `NormalizedRiskProfile`.
  */
@@ -55,8 +59,10 @@ export function normalizePostgresPlan(
         node['Hash Cond'] || node['Merge Cond'] || node['Join Filter']
       );
       const children = node.Plans ?? [];
+      // PostgreSQL 14+ wraps a parameterized inner lookup in Memoize (and sometimes Materialize/Result),
+      // so the index condition can sit below the direct child.
       const hasCorrelatedIndexSeek = children.some(
-        (child) => Boolean(child['Index Cond']) && child['Node Type'] !== 'Seq Scan'
+        (child) => child['Node Type'] !== 'Seq Scan' && hasIndexCondition(child)
       );
 
       // For Nested Loop without Join Filter, check if inner child is a parameterized/indexed lookup;
@@ -67,7 +73,7 @@ export function normalizePostgresPlan(
         nodeType === 'Nested Loop' &&
         !hasExplicitCond &&
         children.length >= 2 &&
-        !children[1]?.['Index Cond']
+        !(children[1] && hasIndexCondition(children[1]))
       ) {
         hasUnconditionalJoin = true;
       }
