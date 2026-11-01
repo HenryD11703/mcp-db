@@ -195,6 +195,7 @@ Agents that verified candidates with `query_database` also reached 15/15 on both
 | `AUDIT_LOG_PATH` | Append-only audit file | `./audit.jsonl` if it exists, else `~/.db-mcp/audit.jsonl` |
 | `APPROVAL_STORE_PATH` | Pending approval tickets | `~/.db-mcp/pending_approvals.json` |
 | `GLOSSARY_PATH` | Business glossary file | `./docs/glossary.yaml`, then `~/.db-mcp/glossary.yaml`, then a bundled sample |
+| `MCP_OUTPUT_FORMAT` | Default result encoding for `query_database`: `semantic_xml` or `strict_json` (machine-parseable) | `semantic_xml` |
 | `MCP_OPERATOR_NAME` | Name recorded when you approve or reject | your OS user |
 
 ### Config file format

@@ -253,7 +253,13 @@ export async function handleCli(args: ReadonlyArray<string>): Promise<number> {
     try {
       console.error(`[DB-MCP] Inicializando ${adapters.length} adaptador(es) con preflight gate...`);
       const registry = await bootstrapAdapters(adapters);
+      const outputFormat = process.env['MCP_OUTPUT_FORMAT'];
+      if (outputFormat !== undefined && outputFormat !== 'semantic_xml' && outputFormat !== 'strict_json') {
+        console.error('[DB-MCP ERROR] MCP_OUTPUT_FORMAT debe ser "semantic_xml" o "strict_json".');
+        return 1;
+      }
       const server = createDatabaseMcpServer(registry, {
+        ...(outputFormat ? { defaultOutputFormat: outputFormat } : {}),
         auditLogger,
         auditLogPath: resolvedAuditPath,
         approvalStore: store

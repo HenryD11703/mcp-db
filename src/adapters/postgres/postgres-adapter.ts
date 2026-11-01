@@ -117,6 +117,15 @@ const PG_SCHEMA_FKS_SQL = `
   ORDER BY con.conname, k.ord
 `;
 
+const PG_TYPE_NAMES: ReadonlyMap<number, string> = new Map(
+  Object.entries(pg.types.builtins).map(([name, oid]) => [Number(oid), name.toLowerCase()])
+);
+
+/** Readable name for a result-set type OID (`1043` -> `varchar`); custom types keep `oid:<n>`. */
+export function pgTypeName(oid: number): string {
+  return PG_TYPE_NAMES.get(oid) ?? `oid:${oid}`;
+}
+
 export function createNodePostgresDriverPool(config: pg.PoolConfig): PostgresDriverPool {
   const pool = new pg.Pool(config);
   return {
@@ -422,7 +431,7 @@ export class PostgresAdapter implements DatabaseAdapter, CatalogCapableAdapter {
       res.fields && res.fields.length > 0
         ? res.fields.map((f) => ({
             name: f.name,
-            dataType: f.dataTypeID !== undefined ? `oid:${f.dataTypeID}` : 'unknown'
+            dataType: f.dataTypeID !== undefined ? pgTypeName(f.dataTypeID) : 'unknown'
           }))
         : Object.keys(slicedRows[0] ?? {}).map((k) => ({ name: k, dataType: 'unknown' }));
 
