@@ -179,17 +179,34 @@ You can configure multiple databases using a single configuration file:
 
 ---
 
-## Interactive Auto-Installer (`npm run install:mcp`)
-
-The project includes an interactive setup wizard that automatically discovers your installed AI agents (**Google Antigravity**, **Claude Code CLI**, and **Claude Desktop**), prompts for database connection strings, and safely writes the server configuration directly into their configuration files (creating `.bak` backups automatically):
+## Quick Install (one command)
 
 ```bash
-# Run the interactive configuration wizard:
-npm run install:mcp
-
-# Or via the db-mcp binary:
-node dist/src/bin/db-mcp.js install
+npm i -g db-mcp-node
+db-mcp install
 ```
+
+The wizard detects your AI agents (**Google Antigravity**, **Claude Code CLI**, **Claude Desktop**), asks for your database connection strings and registers the server in each agent. It never overwrites a config file it cannot parse, and keeps a timestamped `.bak` backup on every write.
+
+Credentials are stored **once** in `~/.db-mcp/config.json` (owner-only, `0600`), not in each agent's config. Manage them any time:
+
+```bash
+db-mcp add erp --type postgres --url "postgresql://ro_user:pass@localhost:5432/erp"
+db-mcp add legacy --type sqlserver --url "Server=host,1433;Database=db;User Id=ro;Password=pass;TrustServerCertificate=true;"
+db-mcp connections      # list (passwords masked)
+db-mcp test             # connect + read-only preflight for every connection (or: db-mcp test erp)
+db-mcp remove legacy
+```
+
+Non-interactive (CI / scripts):
+
+```bash
+db-mcp install --yes --agent claude-code --pg-url "postgresql://..." --mode npx
+```
+
+Connection resolution at `db-mcp start`: `--config <file>` / `MCP_CONFIG_PATH` → `POSTGRES_URL` / `SQLSERVER_URL` env vars → `~/.db-mcp/config.json`.
+
+From a cloned repo you can still run `npm run install:mcp`.
 
 ---
 

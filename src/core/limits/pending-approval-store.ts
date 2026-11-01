@@ -37,8 +37,7 @@ export class PendingApprovalStore implements IPendingApprovalStore {
         // Global canonical path in user's home directory: ~/.db-mcp/pending_approvals.json
         this.storeFilePath = join(homedir(), '.db-mcp', 'pending_approvals.json');
         this.fallbackPaths = [
-          resolve(process.cwd(), '.db-mcp', 'pending_approvals.json'),
-          join(homedir(), 'Documents', 'test-mcp', '.db-mcp', 'pending_approvals.json')
+          resolve(process.cwd(), '.db-mcp', 'pending_approvals.json')
         ];
       }
     }

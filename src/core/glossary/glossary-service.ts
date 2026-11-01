@@ -1,6 +1,8 @@
 import { existsSync, watch, type FSWatcher } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
-import { basename, dirname, resolve } from 'node:path';
+import { homedir } from 'node:os';
+import { basename, dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type {
   ColumnDetail,
   GlossaryLoadStatus,
@@ -37,6 +39,7 @@ export interface GlossaryServiceOptions {
 export class GlossaryService implements IGlossaryService {
   private readonly explicitPath: string | undefined;
   private readonly cwd: string;
+  private readonly hasExplicitCwd: boolean;
   private readonly maxBytes: number;
   private readonly debounceMs: number;
   private readonly onReload: ((status: GlossaryLoadStatus) => void) | undefined;
@@ -51,6 +54,7 @@ export class GlossaryService implements IGlossaryService {
 
   constructor(options: GlossaryServiceOptions = {}) {
     this.explicitPath = options.filePath;
+    this.hasExplicitCwd = options.cwd !== undefined;
     this.cwd = options.cwd ?? process.cwd();
     this.maxBytes = options.maxBytes ?? DEFAULT_MAX_GLOSSARY_BYTES;
     this.debounceMs = options.debounceMs ?? 50;
@@ -206,6 +210,26 @@ export class GlossaryService implements IGlossaryService {
       const full = resolve(this.cwd, candidate);
       if (existsSync(full)) {
         return full;
+      }
+    }
+    if (!this.hasExplicitCwd) {
+      const globalGlossary = join(homedir(), '.db-mcp', 'glossary.yaml');
+      if (existsSync(globalGlossary)) {
+        return globalGlossary;
+      }
+      try {
+        const moduleDir = dirname(fileURLToPath(import.meta.url));
+        const bundledCandidates = [
+          resolve(moduleDir, '../../../docs/glossary.yaml'),
+          resolve(moduleDir, '../../../../docs/glossary.yaml')
+        ];
+        for (const bundled of bundledCandidates) {
+          if (existsSync(bundled)) {
+            return bundled;
+          }
+        }
+      } catch {
+        // Fallback gracefully if import.meta.url cannot be resolved
       }
     }
     return undefined;

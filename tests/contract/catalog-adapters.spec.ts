@@ -89,6 +89,6 @@ describe('catalog capabilities of engine adapters', () => {
 
     const extras = await adapter.getCatalogExtras();
     expect(extras.tables).toEqual([]);
-    expect(seen.some((s) => s.includes('sys.dm_db_partition_stats'))).toBe(true);
+    expect(seen.some((s) => s.includes('sys.partitions'))).toBe(true);
   });
 });
