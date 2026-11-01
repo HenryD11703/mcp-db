@@ -20,7 +20,7 @@ import {
 import { HardenedAstValidator } from '../../core/validation/ast-validator.js';
 import { normalizeSqlServerPlanXml } from './sqlserver-plan-parser.js';
 import { fetchSqlServerCatalogExtras } from './sqlserver-catalog.js';
-import { buildContainmentSql } from '../../core/discovery/containment-sql.js';
+import { buildContainmentSql, buildMultiContainmentSql } from '../../core/discovery/containment-sql.js';
 import type {
   CatalogCapableAdapter,
   CatalogExtras,
@@ -398,6 +398,23 @@ export class SqlServerAdapter implements DatabaseAdapter, CatalogCapableAdapter 
     });
     const row = result.rows[0] ?? {};
     return { sampled: Number(row['sampled'] ?? 0), matched: Number(row['matched'] ?? 0) };
+  }
+
+  public async sampleContainmentMany(
+    child: ColumnRef,
+    parents: ReadonlyArray<ColumnRef>,
+    options: ContainmentSampleOptions
+  ): Promise<ReadonlyArray<ContainmentEvidence>> {
+    const sql = buildMultiContainmentSql('tsql', child, parents, options.maxSample);
+    const result = await this.executeQuery({
+      sql,
+      params: [],
+      maxRows: 1,
+      ...(options.signal ? { signal: options.signal } : {})
+    });
+    const row = result.rows[0] ?? {};
+    const sampled = Number(row['sampled'] ?? 0);
+    return parents.map((_, i) => ({ sampled, matched: Number(row[`m${i}`] ?? 0) }));
   }
 
   public async close(): Promise<void> {    await this.pool.close();

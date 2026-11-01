@@ -15,6 +15,9 @@ export const MEDIUM_THRESHOLD = 0.65;
 /** Name + type evidence alone can never reach HIGH confidence. */
 export const NO_STATISTICS_CAP = 0.84;
 
+/** Lexical score when the child column is the parent key name plus a suffix (below an exact match). */
+export const EXTENDED_KEY_LEXICAL = 0.75;
+
 export const WEIGHT_LEXICAL = 0.5;
 export const WEIGHT_TYPE = 0.2;
 export const WEIGHT_STATISTICAL = 0.3;
@@ -116,6 +119,12 @@ export function lexicalScore(input: LexicalInput, options: TokenizerOptions = {}
   if (sameName && !parentGeneric && !childGeneric) {
     reasons.push(`Identical non-generic column name "${input.childColumn}"`);
     return { score: 0.8, reasons };
+  }
+
+  // `num_art_ped` / `cod_suc_ori` extend the parent key `num_art` / `cod_suc` with a role suffix.
+  if (!parentGeneric && !childGeneric && normalizeName(input.childColumn).startsWith(`${normalizeName(input.parentColumn)}_`)) {
+    reasons.push(`Column name extends the parent key name "${input.parentColumn}"`);
+    return { score: EXTENDED_KEY_LEXICAL, reasons };
   }
 
   return { score: 0, reasons: ['No lexical evidence linking the column to the parent table'] };

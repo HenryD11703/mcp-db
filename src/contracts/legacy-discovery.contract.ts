@@ -86,6 +86,8 @@ export interface InferredRelationship {
   };
   readonly statisticalStatus: StatisticalStatus;
   readonly reasons: ReadonlyArray<string>;
+  /** Other parent keys that contain all sampled child values equally well (the choice is ambiguous). */
+  readonly ambiguousWith?: ReadonlyArray<ColumnRef>;
 }
 
 export interface InferRelationshipsRequest {
@@ -142,6 +144,15 @@ export interface CatalogCapableAdapter {
     parent: ColumnRef,
     options: ContainmentSampleOptions
   ): Promise<ContainmentEvidence>;
+  /**
+   * Optional: one bounded child sample tested against several unique parent keys in a single
+   * round trip. Result order matches `parents`.
+   */
+  sampleContainmentMany?(
+    child: ColumnRef,
+    parents: ReadonlyArray<ColumnRef>,
+    options: ContainmentSampleOptions
+  ): Promise<ReadonlyArray<ContainmentEvidence>>;
 }
 
 export function isCatalogCapable<T extends object>(adapter: T): adapter is T & CatalogCapableAdapter {

@@ -136,7 +136,7 @@ GRANT SHOWPLAN TO mcp_ro;   -- required, see below
 
 ### 8. Legacy database understanding
 - Introspects catalogs without reading user rows.
-- Infers undeclared foreign keys from column names, types and bounded value sampling. When a column has no name hint at all (a self-reference such as `cod_jefe`, or `cliente` pointing at `cod_cli`), it falls back to **value containment**: do the child values all exist in a unique parent key?
+- Infers undeclared foreign keys from column names (including role suffixes such as `cod_suc_ori`), types and bounded value sampling. When a column has no name hint at all (a self-reference such as `cod_jefe`, or `cliente` pointing at `cod_cli`), it falls back to **value containment**: it tests the column against every same-type unique key in one query and reports ambiguous matches instead of guessing.
 - Hot-reloadable business glossary (`glossary.yaml`) to translate legacy acronyms and domain codes.
 
 ### 9. Federated cross-database queries
@@ -170,14 +170,14 @@ When only one adapter is configured, `adapterId` can be omitted.
 
 ### Discovery benchmark
 
-`bench/` builds a 16-table legacy ERP with **no declared foreign keys** and a known answer, loads it into PostgreSQL and SQL Server with Docker, and scores how much of the model is recovered. With the default confidence threshold (0.7) and a read-only user:
+`bench/` builds synthetic legacy ERPs with **no declared foreign keys** and a known answer, loads them into PostgreSQL and SQL Server with Docker, and scores how much of the data model is recovered. Default confidence threshold (0.7), read-only user, `infer_table_relationships` with no arguments:
 
-| | PostgreSQL | SQL Server |
-| :--- | :---: | :---: |
-| Relationships recovered (15 real) | 15 / 15 | 15 / 15 |
-| False positives (decoy tables included) | 0 | 0 |
+| Schema | Real relationships | Recovered | False positives | Engines agree |
+| :--- | :---: | :---: | :---: | :---: |
+| 16 tables | 15 | 15 / 15 | 0 | yes |
+| 100 tables (28 with opaque names or self-references) | 156 | 143 / 156 (91.7%) | 0 | yes |
 
-Agents that verified candidates with `query_database` also reached 15/15 on both engines. It is one synthetic schema, so treat it as a regression check, not a guarantee. See [`bench/`](bench) to run it.
+What still gets missed in the 100-table schema are columns with no name hint whose values fit several parent keys equally well (small dense integer ids). When a text column fits two to five parents, the tool returns each candidate with `ambiguousWith` instead of guessing; beyond five it says nothing. Agents that verified candidates with `query_database` recovered 152 / 156 on both engines, with the remaining four being exactly those unresolvable ties. It is synthetic data, so treat it as a regression check, not a guarantee. See [`bench/`](bench) to run it (`BENCH_SPEC=large` selects the big schema).
 
 ---
 

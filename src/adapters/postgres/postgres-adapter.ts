@@ -19,7 +19,7 @@ import {
 import { HardenedAstValidator } from '../../core/validation/ast-validator.js';
 import { normalizePostgresPlan } from './postgres-plan-parser.js';
 import { fetchPostgresCatalogExtras } from './postgres-catalog.js';
-import { buildContainmentSql } from '../../core/discovery/containment-sql.js';
+import { buildContainmentSql, buildMultiContainmentSql } from '../../core/discovery/containment-sql.js';
 import type {
   CatalogCapableAdapter,
   CatalogExtras,
@@ -401,6 +401,23 @@ export class PostgresAdapter implements DatabaseAdapter, CatalogCapableAdapter {
     });
     const row = result.rows[0] ?? {};
     return { sampled: Number(row['sampled'] ?? 0), matched: Number(row['matched'] ?? 0) };
+  }
+
+  public async sampleContainmentMany(
+    child: ColumnRef,
+    parents: ReadonlyArray<ColumnRef>,
+    options: ContainmentSampleOptions
+  ): Promise<ReadonlyArray<ContainmentEvidence>> {
+    const sql = buildMultiContainmentSql('postgres', child, parents, options.maxSample);
+    const result = await this.executeQuery({
+      sql,
+      params: [],
+      maxRows: 1,
+      ...(options.signal ? { signal: options.signal } : {})
+    });
+    const row = result.rows[0] ?? {};
+    const sampled = Number(row['sampled'] ?? 0);
+    return parents.map((_, i) => ({ sampled, matched: Number(row[`m${i}`] ?? 0) }));
   }
 
   public async close(): Promise<void> {    await this.pool.end();
