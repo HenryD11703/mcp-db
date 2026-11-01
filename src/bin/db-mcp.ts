@@ -23,6 +23,7 @@ import {
   type ConnectionEntry
 } from './config-store.js';
 import { isMainModule } from './is-main.js';
+import { quoteIdentifier } from '../core/discovery/containment-sql.js';
 
 export function resolveDefaultAuditLogPath(): string {
   if (process.env['AUDIT_LOG_PATH']) {
@@ -33,6 +34,14 @@ export function resolveDefaultAuditLogPath(): string {
     return cwdAudit;
   }
   return join(homedir(), '.db-mcp', 'audit.jsonl');
+}
+
+/** Explains why plan analysis failed and, for the common SQL Server case, the exact grant that fixes it. */
+export function planAnalysisHint(type: string, message: string): string {
+  if (type === 'sqlserver' && /showplan/i.test(message) && /permission|denied/i.test(message)) {
+    return 'el usuario no tiene permiso SHOWPLAN. Como administrador ejecute: GRANT SHOWPLAN TO <usuario>;';
+  }
+  return `no se pudo analizar el plan de ejecución (${message}).`;
 }
 
 async function buildAdapter(entry: ConnectionEntry & { config?: unknown }): Promise<DatabaseAdapter> {
@@ -151,18 +160,42 @@ async function handleConnectionCommands(command: string, args: ReadonlyArray<str
       return 1;
     }
     let failed = 0;
+    let warned = 0;
     for (const entry of entries) {
       let adapter: DatabaseAdapter | undefined;
       try {
         adapter = await buildAdapter(entry);
         await bootstrapAdapters([adapter]);
         console.log(`✓ ${entry.id} (${entry.type}): conexión y preflight de solo lectura OK`);
+        // Cost gating needs EXPLAIN/SHOWPLAN. Without it every query is quarantined (fail-safe), which is easy to miss.
+        try {
+          // The permission is only enforced on user objects (catalog views and SELECT 1 pass without it),
+          // so probe with the first user table found.
+          const catalog = await adapter.introspectSchema();
+          const target = catalog.tables.find((t) => t.kind === 'TABLE');
+          if (!target) {
+            console.log(`- ${entry.id}: sin tablas de usuario; no se pudo comprobar el análisis de plan`);
+          } else {
+            const dialect = adapter.dialect;
+            const q = (id: string): string => quoteIdentifier(dialect, id);
+            const from = `${q(target.schema)}.${q(target.name)}`;
+            const probeSql = dialect === 'postgres' ? `SELECT * FROM ${from} LIMIT 1` : `SELECT TOP (1) * FROM ${from}`;
+            await adapter.analyzeQueryPlan({ sql: probeSql, params: [] });
+            console.log(`✓ ${entry.id}: análisis de plan de ejecución disponible`);
+          }
+        } catch (planErr) {
+          warned++;
+          console.error(`⚠ ${entry.id}: ${planAnalysisHint(entry.type, planErr instanceof Error ? planErr.message : String(planErr))}`);
+        }
       } catch (err) {
         failed++;
         console.error(`✗ ${entry.id} (${entry.type}): ${err instanceof Error ? err.message : err}`);
       } finally {
         await adapter?.close().catch(() => undefined);
       }
+    }
+    if (warned > 0) {
+      console.error('\nAdvertencia: sin análisis de plan, las consultas quedan en PENDING_APPROVAL hasta que un operador las apruebe.');
     }
     return failed === 0 ? 0 : 1;
   } catch (err) {

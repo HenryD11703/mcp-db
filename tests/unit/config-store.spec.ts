@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { planAnalysisHint } from '../../src/bin/db-mcp.js';
 import {
   loadConfig,
   redactConnectionString,
@@ -59,5 +60,12 @@ describe('config-store (central ~/.db-mcp/config.json)', () => {
     expect(redactConnectionString('Server=h;User Id=u;Password=s3cret;Database=d')).toBe(
       'Server=h;User Id=u;Password=***;Database=d'
     );
+  });
+
+  it('explains a missing SHOWPLAN grant with the exact fix', () => {
+    const hint = planAnalysisHint('sqlserver', "SHOWPLAN permission denied in database 'bench'.");
+    expect(hint).toContain('GRANT SHOWPLAN TO');
+    expect(planAnalysisHint('sqlserver', 'Invalid or incomplete SHOWPLAN_XML payload.')).not.toContain('GRANT');
+    expect(planAnalysisHint('postgres', 'boom')).toContain('boom');
   });
 });

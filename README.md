@@ -1,335 +1,302 @@
+<div align="center">
+
 # db-mcp-node
 
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
-[![Node.js](https://img.shields.io/badge/Node.js-20%2B%20LTS-green.svg)](https://nodejs.org/)
-[![MCP](https://img.shields.io/badge/MCP-1.0.4-orange.svg)](https://modelcontextprotocol.io/)
-[![Tests](https://img.shields.io/badge/Tests-264%20Passing-brightgreen.svg)]()
-[![License](https://img.shields.io/badge/License-MIT-purple.svg)]()
+**A read-only database MCP server your security team can say yes to.**<br>
+Let AI agents explore PostgreSQL and SQL Server, including legacy schemas with no documentation, without ever being able to change a row.
 
-A hardened, enterprise-grade, read-only relational database **Model Context Protocol (MCP)** server decoupled via the strict `DatabaseAdapter` contract. Engineered with defense-in-depth protection: **AST SQL Security Guard**, **Zero-Trust sanitization**, **in-memory dynamic PII masking**, **cryptographically chained Merkle audit trail (SHA-256)**, **execution plan cost gating with out-of-band human-in-the-loop approval**, **legacy database discovery**, and **heterogeneous cross-server federated queries without linked servers**.
+[![npm](https://img.shields.io/npm/v/db-mcp-node?color=cb3837&logo=npm)](https://www.npmjs.com/package/db-mcp-node)
+[![CI](https://github.com/HenryD11703/mcp-db/actions/workflows/ci.yml/badge.svg)](https://github.com/HenryD11703/mcp-db/actions/workflows/ci.yml)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.7-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-20%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![MCP](https://img.shields.io/badge/MCP-server-orange)](https://modelcontextprotocol.io/)
+[![License](https://img.shields.io/badge/License-MIT-purple.svg)](LICENSE)
 
----
-
-## Repository & Identity
-
-- **Canonical Repository**: [https://github.com/HenryD11703/mcp-db.git](https://github.com/HenryD11703/mcp-db.git)
-- **Author / Developer**: `HenryD11703` ([3680558330101@ingenieria.usac.edu.gt](mailto:3680558330101@ingenieria.usac.edu.gt))
-- **Dialects Supported**: PostgreSQL (`pg`) and Microsoft SQL Server (`mssql` / T-SQL).
+</div>
 
 ---
 
-## Key Capabilities & Security Invariants
+## Why this exists
 
-```
-+-----------------------------------------------------------------------------------------------+
-|                                      LLM / MCP Client                                         |
-+-----------------------------------------------------------------------------------------------+
-                                                 │
-                                                 ▼
-+───────────────────────────────────────────────────────────────────────────────────────────────+
-|                                        MCP Server Layer                                       |
-|                                                                                               |
-|  [ 1. Startup Preflight Gate ]  ──▶ Enforces database read-only privileges (fail-closed)     |
-|  [ 2. AST Security Guard ]      ──▶ Rejects mutations, stacked statements (;), comments      |
-|  [ 3. Cost & Limits Engine ]    ──▶ Gating via EXPLAIN, timeouts, and two-tier rate limits   |
-|  [ 4. Quarantine Store ]        ──▶ PENDING_APPROVAL tickets for human operator review        |
-|  [ 5. Driver Execution ]        ──▶ Parameterized typed queries ($1, @p1)                     |
-|  [ 6. Data Masking Engine ]     ──▶ In-memory DPI, emails, phones, and financial balances     |
-|  [ 7. Federated Orchestrator ]  ──▶ Safe cross-engine join with session HMAC pseudonymization |
-|  [ 8. Zero-Trust Sanitizer ]    ──▶ Structural delimiters (<data_result>) against prompt inj. |
-|  [ 9. Merkle Audit Logger ]     ──▶ SHA-256 append-only chained audit log (audit.jsonl)       |
-+───────────────────────────────────────────────────────────────────────────────────────────────+
-                                                 │
-                                                 ▼
-                        +────────────────────────────────────────────────+
-                        |  PostgreSQL 12+   │   SQL Server 2017+ / Azure |
-                        +────────────────────────────────────────────────+
-```
+Pointing an LLM at a production database is useful and scary. `db-mcp-node` puts nine independent safeguards between the model and your data, so one failure is never enough to cause damage:
 
-### 1. Unbreakable Read-Only AST Guard
-- Enforces strict single-statement `SELECT` as the root AST node using `node-sql-parser` and lexical token scanners.
-- Strictly rejects stacked queries (`;`), mutating CTEs (`WITH ... INSERT/UPDATE/DELETE`), `SELECT INTO`, table locking hints, obfuscating comments (`--`, `/* ... */`), and catalog modifications.
-- Fails closed on syntax ambiguities or dialect edge-cases.
+- **It cannot write.** SQL is parsed into an AST and only a single `SELECT` passes, and the server refuses to start if its database user could write anyway.
+- **It cannot run away.** Query plans are costed before execution; expensive or cartesian queries are blocked or sent to a human.
+- **It cannot leak.** IDs, emails, phones and balances are masked in memory, and the audit log never contains a literal value.
+- **It can understand legacy databases.** It infers the foreign keys nobody ever declared, so an agent can rebuild the data model on its own.
 
-### 2. Fail-Closed Startup Preflight Check
-- Before accepting any query, `StartupPreflightGate` connects to each database adapter and inspects system catalogs (`pg_roles`, `sys.fn_my_permissions`, `information_schema.table_privileges`).
-- Aborts server startup immediately if the configured principal possesses write grants (`INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`, `ALTER`, `CREATE`, `DROP`, `sysadmin`, `superuser`).
-
-### 3. Execution Plan Cost Evaluation & Engine Cancellation
-- Evaluates estimated rows and costs using native database execution plans (`EXPLAIN JSON` in PostgreSQL, `SET SHOWPLAN_XML ON` in SQL Server).
-- Automatically rejects queries exceeding critical cost thresholds or performing unindexed sequential scans on protected tables (`BLOCKED_BY_COST`).
-- True cancellation at the database engine level (`pg_cancel_backend` / `Request.cancel()`) when execution timeout is reached, logging `CANCELLED_BY_TIMEOUT`.
-- In-memory two-tier sliding-window rate limiter (per-client and global).
-
-### 4. Asynchronous Human-in-the-Loop Quarantine
-- Moderate-risk queries transition to `PENDING_APPROVAL` with an expiration TTL (15 minutes by default) without hanging client connections.
-- Constitutionally bars the AI from approving its own queries (principle of non-self-authorization).
-- Human operators review and authorize or reject queries out-of-band via the `db-mcp` CLI.
-- Passive read-only tool `get_query_result` allows clients to check ticket statuses and retrieve masked results once approved.
-
-### 5. In-Memory Privacy & Dynamic Masking
-- Sensitive data is dynamically masked before serialization:
-  - **DPI / National IDs**: Masked leaving only the last 4 digits (`*********1234`).
-  - **Emails**: Partially obfuscated (`u***r@domain.com`).
-  - **Phone Numbers**: International & local formats masked (`+502 **** 5678`).
-  - **Financial Balances & Totals**: Obfuscated or zero-redacted based on profile rules.
-- Masking occurs strictly in volatile memory; raw sensitive values never leave the MCP server process.
-
-### 6. Zero-Trust Prompt Injection Defense
-- Results are enclosed in strict semantic XML boundaries (`<data_result>`) or typed JSON blocks.
-- Dangerous delimiter strings, control characters, markdown escapes, and injection vectors inside database rows are neutralized before LLM delivery.
-
-### 7. Cryptographically Chained Merkle Audit Trail
-- Every operation creates a JSON Lines entry in `audit.jsonl`.
-- Entries are cryptographically chained via `SHA-256(previousHash + canonicalJson)`.
-- Zero PII leakage: all string literals (`'[REDACTED_LITERAL]'`) and numbers (`[REDACTED_NUM]`) are redacted from logged SQL.
-- Built-in automatic log rotation preserving the hash chain across files.
-- Dedicated `audit-verify` CLI tool for forensic verification of log integrity.
-
-### 8. Legacy Database Understanding & Discovery
-- Introspects legacy catalogs without reading user rows.
-- Infers implicit foreign keys based on column names, data types, and bounded value containment sampling.
-- Integrates a hot-reloadable business glossary (`docs/glossary.yaml`) for resolving legacy acronyms and business jargon.
-
-### 9. Secure Federated Cross-Database Queries
-- Executes federated joins across heterogeneous engines (e.g., PostgreSQL ↔ SQL Server) in process memory without database-level linked servers or `OPENQUERY`.
-- Extracted join keys from source queries are treated as untrusted data and strictly injected into target queries as typed parameters (`$1, $2, ...` or `@p1, @p2, ...`), preventing second-order SQL injection.
-- Configurable join key cap defaulting to 500 parameters (well within SQL Server's 2,100 limit).
-- In-memory hash join executes on raw values, followed by session-bound deterministic pseudonymization (`pseudo_<16_hex>`) using HMAC-SHA256 with an ephemeral 32-byte salt, allowing analytical correlation without exposing raw keys.
-- All federated steps share a unified `federation_id` (`correlationId`) across audit logs.
+| | |
+| :--- | :--- |
+| **Engines** | PostgreSQL 12+ · SQL Server 2017+ / Azure SQL |
+| **Clients** | Claude Code · Claude Desktop · Google Antigravity · any MCP client |
+| **Runtime** | Node.js 20+ |
 
 ---
 
-## MCP Tools Catalog
-
-The server exposes **9 specialized MCP tools** for LLM agents:
-
-| Tool Name | Scope | Description | Inputs |
-| :--- | :---: | :--- | :--- |
-| `query_database` | Query | Executes a strictly read-only `SELECT` query through AST validation, cost evaluation, in-memory masking, and Zero-Trust wrapping. | `adapterId`, `sql`, `params?`, `format?` (`semantic_xml` \| `strict_json`) |
-| `explain_query` | Query | Preflight analysis returning execution plan cost, warnings, and risk profile without fetching data. | `adapterId`, `sql`, `params?` |
-| `introspect_schema` | Schema | Returns normalized database schema catalog (tables, views, columns, keys). | `adapterId` |
-| `get_query_result` | Quarantine | Passively polls status or retrieves masked data for queries queued in `PENDING_APPROVAL`. | `approvalId` |
-| `search_catalog` | Discovery | Fuzzy natural language search across table and column names and glossary descriptions. | `adapterId`, `query`, `limit?` |
-| `get_table_context` | Discovery | Retrieves comprehensive table metadata, declared constraints, and inferred foreign keys. | `adapterId`, `tableName` |
-| `infer_relationships` | Discovery | Discovers undocumented, implicit relationships between tables using containment analysis. | `adapterId`, `tableName?`, `confidenceThreshold?` |
-| `lookup_glossary` | Glossary | Resolves domain terms, abbreviations, and table/column annotations from `glossary.yaml`. | `term` |
-| `execute_federated_query` | Federation | Orchestrates cross-database join across distinct database servers with typed parameter binding and session pseudonymization. | `sourceAdapterId`, `sourceSql`, `sourceKeyColumn`, `targetAdapterId`, `targetSqlTemplate`, `targetJoinColumn`, `joinType?`, `maxKeys?` |
-
----
-
-## Installation & Build
-
-### Prerequisites
-- **Node.js**: `v20.0.0` LTS or higher
-- **Package Manager**: `npm` v10+
-
-### Setup
-```bash
-# Clone the repository
-git clone https://github.com/HenryD11703/mcp-db.git
-cd db-mcp-node
-
-# Install dependencies
-npm install
-
-# Compile TypeScript to dist/
-npm run build
-
-# Verify type safety
-npm run typecheck
-```
-
----
-
-## Configuration & Deployment
-
-### 1. Environment Variables
-
-| Variable | Description | Default |
-| :--- | :--- | :--- |
-| `POSTGRES_URL` / `PG_URL` | PostgreSQL connection string (`postgresql://user:pass@host:5432/db`) | _Optional_ |
-| `PG_ADAPTER_ID` | Identifier registered for the PostgreSQL adapter | `postgres` |
-| `SQLSERVER_URL` / `MSSQL_URL` | SQL Server connection string (`Server=host,1433;Database=db;...`) | _Optional_ |
-| `MSSQL_ADAPTER_ID` | Identifier registered for the SQL Server adapter | `sqlserver` |
-| `AUDIT_LOG_PATH` | Path for the active append-only audit file | `audit.jsonl` |
-| `APPROVAL_STORE_PATH` | Path for the pending approval tickets store | `.db-mcp/pending-approvals.json` |
-| `GLOSSARY_PATH` | Path to the business glossary file | `docs/glossary.yaml` |
-| `MCP_CONFIG_PATH` | Path to JSON multi-adapter configuration file | _Optional_ |
-
-### 2. Multi-Adapter JSON Configuration (`config.json`)
-You can configure multiple databases using a single configuration file:
-
-```json
-{
-  "adapters": [
-    {
-      "id": "crm-postgres",
-      "type": "postgres",
-      "connectionString": "postgresql://mcp_ro:SuperSecret@pg-host:5432/crm"
-    },
-    {
-      "id": "billing-sqlserver",
-      "type": "sqlserver",
-      "connectionString": "Server=mssql-host,1433;Database=billing;User Id=mcp_ro;Password=SuperSecret;TrustServerCertificate=true;"
-    }
-  ]
-}
-```
-
----
-
-## Quick Install (one command)
+## Quick start
 
 ```bash
 npm i -g db-mcp-node
 db-mcp install
 ```
 
-The wizard detects your AI agents (**Google Antigravity**, **Claude Code CLI**, **Claude Desktop**), asks for your database connection strings and registers the server in each agent. It never overwrites a config file it cannot parse, and keeps a timestamped `.bak` backup on every write.
-
-Credentials are stored **once** in `~/.db-mcp/config.json` (owner-only, `0600`), not in each agent's config. Manage them any time:
+The wizard finds your AI agents, asks for your connection strings and registers the server in each one. Then add or check connections at any time:
 
 ```bash
 db-mcp add erp --type postgres --url "postgresql://ro_user:pass@localhost:5432/erp"
 db-mcp add legacy --type sqlserver --url "Server=host,1433;Database=db;User Id=ro;Password=pass;TrustServerCertificate=true;"
-db-mcp connections      # list (passwords masked)
-db-mcp test             # connect + read-only preflight for every connection (or: db-mcp test erp)
-db-mcp remove legacy
+db-mcp connections     # list them, passwords masked
+db-mcp test            # connect, prove the user is read-only, check plan analysis
 ```
 
-Non-interactive (CI / scripts):
+<p align="center">
+  <img src="https://raw.githubusercontent.com/HenryD11703/mcp-db/main/docs/img/install.svg" alt="Installation flow: npm install, db-mcp install, credentials file and agent configuration" width="900">
+</p>
 
-```bash
-db-mcp install --yes --agent claude-code --pg-url "postgresql://..." --mode npx
+- Credentials live **once** in `~/.db-mcp/config.json` (owner-only, `0600`). Agent config files only say `db-mcp start`, with no secrets.
+- The wizard never overwrites a config file it cannot parse, and keeps a timestamped `.bak` of every file it touches.
+- Non-interactive (CI, scripts): `db-mcp install --yes --agent claude-code --pg-url "postgresql://..." --mode npx`
+- Connection resolution at `db-mcp start`: `--config <file>` or `MCP_CONFIG_PATH` → `POSTGRES_URL` / `SQLSERVER_URL` env vars → `~/.db-mcp/config.json`.
+
+### Create a read-only database user
+
+The server **refuses to start** if its user has any write privilege, so use a dedicated read-only account.
+
+<details>
+<summary><b>PostgreSQL</b></summary>
+
+```sql
+CREATE ROLE mcp_ro LOGIN PASSWORD 'change-me';
+GRANT CONNECT ON DATABASE mydb TO mcp_ro;
+GRANT USAGE ON SCHEMA public TO mcp_ro;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO mcp_ro;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO mcp_ro;
+ALTER ROLE mcp_ro SET default_transaction_read_only = on;
 ```
+</details>
 
-Connection resolution at `db-mcp start`: `--config <file>` / `MCP_CONFIG_PATH` → `POSTGRES_URL` / `SQLSERVER_URL` env vars → `~/.db-mcp/config.json`.
+<details>
+<summary><b>SQL Server</b></summary>
 
-From a cloned repo you can still run `npm run install:mcp`.
+```sql
+CREATE LOGIN mcp_ro WITH PASSWORD = 'change-me', CHECK_POLICY = ON;
+USE mydb;
+CREATE USER mcp_ro FOR LOGIN mcp_ro;
+ALTER ROLE db_datareader ADD MEMBER mcp_ro;
+GRANT SHOWPLAN TO mcp_ro;   -- required, see below
+```
+</details>
+
+> **Important: SQL Server needs `GRANT SHOWPLAN`.** Cost gating reads the execution plan before each query. Without `SHOWPLAN` the plan cannot be checked, so the server fails safe and puts **every** query in `PENDING_APPROVAL`. Run `db-mcp test`: it warns you and prints the exact `GRANT` to run.
 
 ---
 
-## Connecting to MCP Clients
+## How a request is protected
 
-### Claude Desktop (`claude_desktop_config.json`)
-Add the server under `mcpServers`:
+<p align="center">
+  <img src="https://raw.githubusercontent.com/HenryD11703/mcp-db/main/docs/img/architecture.svg" alt="db-mcp request pipeline: MCP client, nine protection stages, read-only databases" width="900">
+</p>
+
+### 1. Read-only AST guard
+- Only a single `SELECT` is allowed as the root AST node (`node-sql-parser` plus a lexical scanner).
+- Rejects stacked statements (`;`), mutating CTEs, `SELECT INTO`, locking hints, obfuscating comments and catalog changes.
+- Fails closed on any syntax ambiguity.
+
+### 2. Fail-closed startup preflight
+- Before serving anything it inspects the database principal (`pg_roles`, `sys.fn_my_permissions`, `information_schema.table_privileges`).
+- Aborts startup if the user holds `INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`, `ALTER`, `CREATE`, `DROP`, `sysadmin` or superuser rights.
+
+### 3. Cost evaluation and cancellation
+- Uses native plans (`EXPLAIN (FORMAT JSON)` on PostgreSQL, `SET SHOWPLAN_XML` on SQL Server).
+- Blocks queries over the cost or row thresholds, cartesian joins, and full scans of protected tables (`BLOCKED_BY_COST`).
+- Cancels at the engine (`pg_cancel_backend`, `Request.cancel()`) on timeout and logs `CANCELLED_BY_TIMEOUT`.
+- Two-tier sliding-window rate limiter (per client and global).
+
+### 4. Human-in-the-loop quarantine
+- Moderate-risk queries become `PENDING_APPROVAL` tickets (15 minute TTL) and never hang the client.
+- The agent cannot approve its own tickets: approval happens out of band through the `db-mcp` CLI.
+- `get_query_result` lets the agent poll a ticket and receive masked rows once approved.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/HenryD11703/mcp-db/main/docs/img/query-flow.svg" alt="Query decision flow: execute, quarantine for approval, or block by cost" width="900">
+</p>
+
+### 5. In-memory masking
+- **National IDs** keep the last 4 digits (`*********1234`), **emails** are partly hidden (`u***r@domain.com`), **phones** are masked (`+502 **** 5678`), **balances** follow profile rules.
+- Masking happens only in process memory. Raw sensitive values never leave the server.
+
+### 6. Zero-trust prompt-injection defense
+- Results are wrapped in strict semantic XML (`<data_result>`) or typed JSON.
+- Delimiter strings, control characters and markdown escapes inside rows are neutralized before the model sees them.
+
+### 7. Chained audit trail
+- Every operation appends a JSON Lines entry to `audit.jsonl`, chained with `SHA-256(previousHash + canonicalJson)`.
+- Literals are redacted from logged SQL (`'[REDACTED_LITERAL]'`, `[REDACTED_NUM]`), so there is no PII in the log.
+- Log rotation keeps the chain intact, and `audit-verify` detects edits, gaps and truncation.
+
+### 8. Legacy database understanding
+- Introspects catalogs without reading user rows.
+- Infers undeclared foreign keys from column names, types and bounded value sampling. When a column has no name hint at all (a self-reference such as `cod_jefe`, or `cliente` pointing at `cod_cli`), it falls back to **value containment**: do the child values all exist in a unique parent key?
+- Hot-reloadable business glossary (`glossary.yaml`) to translate legacy acronyms and domain codes.
+
+### 9. Federated cross-database queries
+- Joins PostgreSQL and SQL Server in process memory, with no linked servers or `OPENQUERY`.
+- Join keys from the source are treated as untrusted and bound as typed parameters (`$1` / `@p1`), which blocks second-order SQL injection.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/HenryD11703/mcp-db/main/docs/img/federation.svg" alt="Federated query: source keys, typed parameters into the target engine, in-memory join, pseudonymization" width="900">
+</p>
+
+---
+
+## MCP tools
+
+The server exposes **10 tools**.
+
+| Tool | Scope | What it does | Main inputs |
+| :--- | :---: | :--- | :--- |
+| `list_adapters` | Discovery | Lists the configured connections and their dialect. | none |
+| `list_tables` | Discovery | Tables and views from system catalogs only (no rows read), with row estimates and glossary titles. | `adapterId`, `schema?`, `namePattern?`, `limit?`, `cursor?` |
+| `describe_table` | Discovery | Columns, types, keys, indexes and declared foreign keys, enriched with glossary meanings. | `adapterId`, `table`, `schema?` |
+| `infer_table_relationships` | Discovery | Scored hypotheses for undeclared foreign keys. `tables` is optional: omit it to analyze the whole schema. | `adapterId`, `tables?`, `minConfidence?`, `verifyStatistically?` |
+| `search_glossary` | Glossary | Looks up business terms, synonyms and domain codes, and returns matching tables and columns. | `query`, `adapterId?`, `limit?` |
+| `introspect_schema` | Schema | Full normalized catalog (tables, views, columns, keys). | `adapterId` |
+| `query_database` | Query | Runs a read-only `SELECT` through AST validation, cost evaluation, masking and zero-trust wrapping. | `adapterId`, `sql`, `params?`, `format?` (`semantic_xml` \| `strict_json`) |
+| `explain_query` | Query | Execution plan cost, warnings and risk profile without fetching data. | `adapterId`, `sql`, `params?` |
+| `get_query_result` | Quarantine | Polls a `PENDING_APPROVAL` ticket and returns masked rows once approved. | `approvalId` |
+| `execute_federated_query` | Federation | Cross-engine join with typed parameter binding and session pseudonymization. | `sourceAdapterId`, `sourceSql`, `sourceKeyColumn`, `targetAdapterId`, `targetSqlTemplate`, `targetJoinColumn`, `joinType?`, `maxKeys?` |
+
+When only one adapter is configured, `adapterId` can be omitted.
+
+### Discovery benchmark
+
+`bench/` builds a 16-table legacy ERP with **no declared foreign keys** and a known answer, loads it into PostgreSQL and SQL Server with Docker, and scores how much of the model is recovered. With the default confidence threshold (0.7) and a read-only user:
+
+| | PostgreSQL | SQL Server |
+| :--- | :---: | :---: |
+| Relationships recovered (15 real) | 15 / 15 | 15 / 15 |
+| False positives (decoy tables included) | 0 | 0 |
+
+Agents that verified candidates with `query_database` also reached 15/15 on both engines. It is one synthetic schema, so treat it as a regression check, not a guarantee. See [`bench/`](bench) to run it.
+
+---
+
+## Configuration
+
+### Environment variables
+
+| Variable | Description | Default |
+| :--- | :--- | :--- |
+| `POSTGRES_URL` / `PG_URL` | PostgreSQL connection string | none |
+| `PG_ADAPTER_ID` | Adapter id for the PostgreSQL URL | `postgres` |
+| `SQLSERVER_URL` / `MSSQL_URL` | SQL Server connection string | none |
+| `MSSQL_ADAPTER_ID` | Adapter id for the SQL Server URL | `sqlserver` |
+| `MCP_CONFIG_PATH` | JSON file with several adapters | none |
+| `AUDIT_LOG_PATH` | Append-only audit file | `./audit.jsonl` if it exists, else `~/.db-mcp/audit.jsonl` |
+| `APPROVAL_STORE_PATH` | Pending approval tickets | `~/.db-mcp/pending_approvals.json` |
+| `GLOSSARY_PATH` | Business glossary file | `./docs/glossary.yaml`, then `~/.db-mcp/glossary.yaml`, then a bundled sample |
+| `MCP_OPERATOR_NAME` | Name recorded when you approve or reject | your OS user |
+
+### Config file format
+
+`~/.db-mcp/config.json` (managed by `db-mcp add`) and any `--config` file share one format:
+
+```json
+{
+  "adapters": [
+    { "id": "crm", "type": "postgres", "connectionString": "postgresql://mcp_ro:secret@pg-host:5432/crm" },
+    { "id": "billing", "type": "sqlserver", "connectionString": "Server=mssql-host,1433;Database=billing;User Id=mcp_ro;Password=secret;TrustServerCertificate=true;" }
+  ]
+}
+```
+
+### Manual client setup
+
+`db-mcp install` does this for you. To edit a client by hand, point it at `db-mcp start`. Credentials come from `~/.db-mcp/config.json`, so no secrets are needed in the client file.
+
+<details>
+<summary><b>Claude Desktop</b> (<code>claude_desktop_config.json</code>)</summary>
 
 ```json
 {
   "mcpServers": {
-    "enterprise-databases": {
-      "command": "node",
-      "args": [
-        "c:/Users/hquel/Documents/db-mcp-node/dist/src/bin/db-mcp.js",
-        "start"
-      ],
-      "env": {
-        "POSTGRES_URL": "postgresql://mcp_ro:Password123@localhost:5432/production_db",
-        "SQLSERVER_URL": "Server=localhost,1433;Database=finance_db;User Id=mcp_ro;Password=Password123;TrustServerCertificate=true;",
-        "AUDIT_LOG_PATH": "c:/Users/hquel/Documents/db-mcp-node/audit.jsonl"
-      }
+    "db-mcp": {
+      "command": "db-mcp",
+      "args": ["start"]
     }
   }
 }
 ```
 
-### Cursor & Antigravity MCP Config
-Configure the command as `node` with arguments pointing to `dist/src/bin/db-mcp.js start` and the appropriate environment variables.
+Without a global install, use `"command": "npx"` and `"args": ["-y", "db-mcp-node", "start"]`.
+</details>
 
----
-
-## Operator CLI (`db-mcp`)
-
-The server bundles a dedicated operator CLI for managing queued queries and starting the service:
+<details>
+<summary><b>Claude Code</b></summary>
 
 ```bash
-# Start the MCP server over Stdio transport
-npm run cli:db-mcp start
-
-# Start using a multi-adapter configuration file
-npm run cli:db-mcp start -- --config ./config.json
-
-# List pending queries awaiting human approval
-npm run cli:db-mcp list-pending
-
-# Approve a quarantined query
-npm run cli:db-mcp approve appr_3fa85f64-5717-4562-b3fc-2c963f66afa6 -- --reason "Approved by Security Lead"
-
-# Reject a quarantined query
-npm run cli:db-mcp reject appr_3fa85f64-5717-4562-b3fc-2c963f66afa6 -- --reason "Estimated cost too high"
+claude mcp add db-mcp -- db-mcp start
+claude mcp list
 ```
+</details>
 
 ---
 
-## Forensic Audit Verification (`audit-verify`)
+## Operator CLI
 
-Verify that the append-only Merkle hash chain has not been tampered with, edited, or truncated:
+Humans approve quarantined queries and manage connections from the same binary:
 
 ```bash
-# Run verification on the default audit log
-npm run audit:verify
+db-mcp list-pending                              # queries waiting for approval
+db-mcp approve <approvalId> --reason "Reviewed"  # or: db-mcp approve latest
+db-mcp reject  <approvalId> --reason "Too costly"
 
-# Or verify an explicit log file
-node dist/src/bin/audit-verify.js ./audit.jsonl
+db-mcp add | connections | test | remove         # manage connections
+db-mcp start [--config ./config.json]            # run the MCP server over stdio
 ```
 
-### Verification Exit Codes & Output
-- **Exit Code 0 (Valid)**:
-  ```
-  [AUDIT VERIFY SUCCESS] Cadena de auditoría 100% íntegra y auténtica.
-  Total de entradas verificadas: 42
-  Rango de secuencias: 1 a 42
-  ```
-- **Exit Code 1 (Tampered)**:
-  Detailed forensic diagnostics showing line number, sequence number, correlation ID, and violation reason (`HASH_MISMATCH`, `PREVIOUS_HASH_MISMATCH`, `SEQUENCE_GAP`, or `INVALID_JSON`).
-
----
-
-## Test Suite & Verification
-
-The project includes an adversarial test suite, contract suites, and end-to-end integration tests:
+### Verify the audit trail
 
 ```bash
-# Run the complete test suite (44 test suites, 264 tests)
-npm test
-
-# Run adversarial SQL injection & bypass test suite
-npm run test:adversarial
-
-# Run second-order SQL injection test
-npx vitest run tests/adversarial/second-order-sqli.spec.ts
-
-# Run cost limits & rate limiter tests
-npm run test:limits
-npm run test:rate-limit
-
-# Run human-in-the-loop approval tests
-npm run test:approval
-
-# Run catalog discovery & glossary tests
-npm run test:discovery
-
-# Run audit chain integrity tests
-npm run test:audit
+audit-verify                 # default log
+audit-verify ./audit.jsonl   # explicit file
 ```
+
+Exit code `0` means the chain is intact (`Chain intact. N entries verified.`). Exit code `1` prints the line, sequence number, correlation id and reason (`HASH_MISMATCH`, `PREVIOUS_HASH_MISMATCH`, `SEQUENCE_GAP` or `INVALID_JSON`).
 
 ---
 
-## Security Guarantees & Non-Goals
+## Development
 
-### Guarantees
-1. **Zero Database Mutations**: No mutation query can bypass the AST parser, lexical scanner, and database read-only user enforcement.
-2. **Zero Second-Order SQLi**: Extracted federated join keys are treated as untrusted data and strictly bound as dialetic-specific typed parameters.
-3. **Zero Plaintext PII in Logs**: Logged queries have all literals redacted; sensitive data fields are pseudonymized or masked in memory.
-4. **No AI Self-Approval**: The MCP server strictly forbids the AI model from authorizing its own quarantined tickets.
+```bash
+git clone https://github.com/HenryD11703/mcp-db.git
+cd mcp-db
+npm install
+npm run build
+npm test                   # full suite
+npm run test:adversarial   # SQL injection and bypass corpus
+npm run test:discovery     # catalog, inference and glossary
+npm run test:audit         # audit chain integrity
+```
 
-### Non-Goals
-- **Write Operations**: No `INSERT`, `UPDATE`, `DELETE`, or DDL statements will ever be supported.
-- **Arbitrary Code Execution**: No `xp_cmdshell`, user-defined script execution, or server-side linked server tunneling.
+Diagrams in this README are generated: edit [`docs/diagrams/build.mjs`](docs/diagrams/build.mjs) and run `node docs/diagrams/build.mjs`.
+
+---
+
+## Security guarantees and non-goals
+
+**Guarantees**
+1. **No database mutations.** No write can get past the AST parser, the lexical scanner and the read-only user check.
+2. **No second-order SQL injection.** Federated join keys are untrusted data, bound only as typed parameters.
+3. **No plaintext PII in logs.** Logged SQL has every literal redacted, and sensitive fields are masked in memory.
+4. **No AI self-approval.** The model can never authorize its own quarantined query.
+
+**Non-goals**
+- Write operations of any kind (`INSERT`, `UPDATE`, `DELETE`, DDL) will never be supported.
+- No arbitrary code execution: no `xp_cmdshell`, user scripts or linked-server tunneling.
 
 ---
 
 ## License
 
-MIT © [HenryD11703](https://github.com/HenryD11703) (USAC)
+MIT © [HenryD11703](https://github.com/HenryD11703) · [Repository](https://github.com/HenryD11703/mcp-db) · [Report an issue](https://github.com/HenryD11703/mcp-db/issues)
