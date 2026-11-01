@@ -159,7 +159,7 @@ function createPostgresTestHarnessPool(options: { isReadOnlyUser: boolean }): Po
             };
           }
 
-          if (normalized.includes("tc.constraint_type = 'FOREIGN KEY'")) {
+          if (normalized.includes("con.contype = 'f'")) {
             return {
               rows: [
                 {

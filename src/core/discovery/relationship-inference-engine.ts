@@ -13,14 +13,18 @@ import {
   entityTokensOfColumn,
   entityTokensOfTable,
   isGenericColumn,
+  isIdToken,
   normalizeName,
+  tokenize,
   type TokenizerOptions
 } from './name-tokenizer.js';
 import {
   combineScore,
+  containmentOnlyScore,
   levelOf,
   lexicalScore,
   typeCompatibility,
+  typeFamily,
   TYPE_GATE
 } from './inference-scoring.js';
 import { parseQualifiedName, resolveTable } from './table-resolution.js';
@@ -31,6 +35,8 @@ export interface RelationshipInferenceOptions extends TokenizerOptions {
   readonly maxSamplings?: number;
   readonly defaultMinConfidence?: number;
   readonly maxResults?: number;
+  /** Extra sampling budget for columns with no name evidence (value-containment-only discovery). */
+  readonly maxContainmentOnlySamplings?: number;
 }
 
 interface ParentKey {
@@ -67,6 +73,7 @@ export class RelationshipInferenceEngine implements IRelationshipInferenceEngine
   private readonly maxSamplings: number;
   private readonly defaultMinConfidence: number;
   private readonly maxResults: number;
+  private readonly maxContainmentOnlySamplings: number;
   private readonly tokenizerOptions: TokenizerOptions;
 
   constructor(options: RelationshipInferenceOptions = {}) {
@@ -75,6 +82,7 @@ export class RelationshipInferenceEngine implements IRelationshipInferenceEngine
     this.maxSamplings = options.maxSamplings ?? 25;
     this.defaultMinConfidence = options.defaultMinConfidence ?? 0.7;
     this.maxResults = options.maxResults ?? 200;
+    this.maxContainmentOnlySamplings = options.maxContainmentOnlySamplings ?? 60;
     this.tokenizerOptions = options.abbreviations ? { abbreviations: options.abbreviations } : {};
   }
 
@@ -158,12 +166,118 @@ export class RelationshipInferenceEngine implements IRelationshipInferenceEngine
       });
     }
 
+    if (canSample) {
+      results.push(
+        ...(await this.inferByContainmentOnly(adapter, tables, parentKeys, requested, declared, candidates, minConfidence, signal))
+      );
+    }
+
     results.sort(
       (a, b) =>
         b.score - a.score ||
         `${a.child.table}.${a.child.column}`.localeCompare(`${b.child.table}.${b.child.column}`)
     );
     return results.slice(0, this.maxResults);
+  }
+
+  /**
+   * Second pass for child columns that no name rule linked to any parent (e.g. `cod_jefe` -> `cod_usr`,
+   * a self-reference, or `cliente` -> `cod_cli`). Parents are same-family unique keys; the only
+   * evidence is that the sampled child values exist in the parent key, so scores stay modest.
+   */
+  private async inferByContainmentOnly(
+    adapter: object,
+    tables: ReadonlyArray<TableMetadata>,
+    parentKeys: ReadonlyArray<ParentKey>,
+    requested: ReadonlySet<string>,
+    declared: ReadonlySet<string>,
+    named: ReadonlyArray<Candidate>,
+    minConfidence: number,
+    signal?: AbortSignal
+  ): Promise<InferredRelationship[]> {
+    const withNameEvidence = new Set(
+      named.map((c) => `${c.child.schema}\u0000${c.child.table}\u0000${c.child.column}`)
+    );
+    const probes: Array<{ child: ColumnRef; childType: string; parent: ParentKey; idLike: boolean }> = [];
+
+    for (const table of tables) {
+      if (table.kind !== 'TABLE' || !requested.has(keyOf(table.schema, table.name))) {
+        continue;
+      }
+      for (const col of table.columns) {
+        const colKey = `${table.schema}\u0000${table.name}\u0000${col.name}`;
+        if (declared.has(colKey) || withNameEvidence.has(colKey) || isGenericColumn(col.name)) {
+          continue;
+        }
+        if (table.primaryKeyColumns.length === 1 && table.primaryKeyColumns[0] === col.name) {
+          continue; // the table's own identity, not a reference
+        }
+        const family = typeFamily(col.dataType);
+        if (family !== 'int' && family !== 'string' && family !== 'uuid') {
+          continue;
+        }
+        const idLike = tokenizeHasId(col.name);
+        if (family === 'int' && !idLike) {
+          continue; // plain integers (quantities, lines) overlap dense keys by chance
+        }
+        for (const parent of parentKeys) {
+          if (parent.table.schema === table.schema && parent.table.name === table.name && parent.column === col.name) {
+            continue;
+          }
+          if (typeFamily(parent.dataType) !== family) {
+            continue;
+          }
+          probes.push({
+            child: { schema: table.schema, table: table.name, column: col.name },
+            childType: col.dataType,
+            parent,
+            idLike
+          });
+        }
+      }
+    }
+
+    probes.sort((a, b) => Number(b.idLike) - Number(a.idLike));
+    const out: InferredRelationship[] = [];
+    let budget = this.maxContainmentOnlySamplings;
+
+    for (const probe of probes) {
+      if (budget <= 0 || signal?.aborted) {
+        break;
+      }
+      budget -= 1;
+      const parentRef: ColumnRef = {
+        schema: probe.parent.table.schema,
+        table: probe.parent.table.name,
+        column: probe.parent.column
+      };
+      const outcome = await this.sample(
+        adapter,
+        { child: probe.child, parent: parentRef } as Candidate,
+        signal
+      );
+      if (outcome.status !== 'VERIFIED') {
+        continue;
+      }
+      const score = containmentOnlyScore(probe.childType, outcome.ratio, outcome.sampled);
+      if (score <= 0 || score < minConfidence) {
+        continue;
+      }
+      out.push({
+        child: probe.child,
+        parent: parentRef,
+        score,
+        level: levelOf(score),
+        factors: { lexical: 0, typeCompat: 1, statistical: round2(outcome.ratio) },
+        statisticalStatus: 'VERIFIED',
+        reasons: [
+          'No name evidence: inferred only from value containment',
+          `Sampled ${outcome.sampled} values: ${(outcome.ratio * 100).toFixed(0)}% exist in the parent key`,
+          probe.parent.source === 'PRIMARY_KEY' ? 'Parent column is the primary key' : 'Parent column has a unique index'
+        ]
+      });
+    }
+    return out;
   }
 
   private declaredChildColumns(snapshot: CatalogSnapshot): Set<string> {
@@ -361,6 +475,10 @@ export class RelationshipInferenceEngine implements IRelationshipInferenceEngine
       external?.removeEventListener('abort', onExternal);
     }
   }
+}
+
+function tokenizeHasId(name: string): boolean {
+  return tokenize(name).some(isIdToken);
 }
 
 function round2(n: number): number {
