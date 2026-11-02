@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { planAnalysisHint } from '../../src/bin/db-mcp.js';
+import { planAnalysisHint, buildAdapter } from '../../src/bin/db-mcp.js';
 import {
   loadConfig,
   redactConnectionString,
@@ -62,10 +62,31 @@ describe('config-store (central ~/.db-mcp/config.json)', () => {
     );
   });
 
-  it('explains a missing SHOWPLAN grant with the exact fix', () => {
+  it('explains plan analysis hints across dialects', () => {
     const hint = planAnalysisHint('sqlserver', "SHOWPLAN permission denied in database 'bench'.");
     expect(hint).toContain('GRANT SHOWPLAN TO');
     expect(planAnalysisHint('sqlserver', 'Invalid or incomplete SHOWPLAN_XML payload.')).not.toContain('GRANT');
     expect(planAnalysisHint('postgres', 'boom')).toContain('boom');
+    expect(planAnalysisHint('mysql', 'explain failure')).toContain('EXPLAIN');
+    expect(planAnalysisHint('mariadb', 'explain failure')).toContain('EXPLAIN');
+    expect(planAnalysisHint('sqlite', 'syntax error')).toContain('EXPLAIN QUERY PLAN');
+  });
+
+  it('buildAdapter instantiates mysql and sqlite adapters properly', async () => {
+    const mysqlAdapter = await buildAdapter({
+      id: 'test-mysql',
+      type: 'mysql',
+      connectionString: 'mysql://ro_user:pass@localhost:3306/db'
+    });
+    expect(mysqlAdapter.adapterId).toBe('test-mysql');
+    expect(mysqlAdapter.dialect).toBe('mysql');
+
+    const sqliteAdapter = await buildAdapter({
+      id: 'test-sqlite',
+      type: 'sqlite',
+      connectionString: './tests/fixtures/test.sqlite'
+    });
+    expect(sqliteAdapter.adapterId).toBe('test-sqlite');
+    expect(sqliteAdapter.dialect).toBe('sqlite');
   });
 });

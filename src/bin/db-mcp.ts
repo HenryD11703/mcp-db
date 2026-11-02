@@ -3,10 +3,11 @@ import { MySqlAdapter } from '../adapters/mysql/index.js';
 import { SqliteAdapter } from '../adapters/sqlite/index.js';
 import { readFileSync, existsSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, resolve, dirname } from 'node:path';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { PendingApprovalStore } from '../core/limits/pending-approval-store.js';
 import { AuditLogger } from '../core/audit/audit-logger.js';
+import { AuditVerifier } from '../core/audit/audit-verifier.js';
 import { SqlSanitizerForAudit } from '../core/audit/sql-sanitizer.js';
 import { createDatabaseMcpServer, bootstrapAdapters } from '../index.js';
 import { PostgresAdapter, createNodePostgresDriverPool } from '../adapters/postgres/postgres-adapter.js';
@@ -43,23 +44,48 @@ export function planAnalysisHint(type: string, message: string): string {
   if (type === 'sqlserver' && /showplan/i.test(message) && /permission|denied/i.test(message)) {
     return 'el usuario no tiene permiso SHOWPLAN. Como administrador ejecute: GRANT SHOWPLAN TO <usuario>;';
   }
+  if ((type === 'mysql' || type === 'mariadb') && /explain/i.test(message)) {
+    return `verifique permisos de SELECT y sintaxis EXPLAIN (${message}).`;
+  }
+  if (type === 'sqlite') {
+    return `error al analizar el plan con EXPLAIN QUERY PLAN (${message}).`;
+  }
   return `no se pudo analizar el plan de ejecución (${message}).`;
 }
 
-async function buildAdapter(entry: ConnectionEntry & { config?: unknown }): Promise<DatabaseAdapter> {
+export async function buildAdapter(entry: ConnectionEntry & { config?: unknown }): Promise<DatabaseAdapter> {
+  const connStr = entry.connectionString || (typeof entry.config === 'string' ? entry.config : '');
   if (entry.type === 'postgres') {
-    const pool = createNodePostgresDriverPool({ connectionString: entry.connectionString });
+    const pool = createNodePostgresDriverPool({ connectionString: connStr });
     return new PostgresAdapter(entry.id || 'postgres', pool);
   }
   if (entry.type === 'sqlserver') {
-    const pool = await createMssqlDriverPool(entry.connectionString || (entry.config as string));
+    const pool = await createMssqlDriverPool(connStr);
     return new SqlServerAdapter(entry.id || 'sqlserver', pool);
+  }
+  if (entry.type === 'mysql' || entry.type === 'mariadb') {
+    return new MySqlAdapter({
+      adapterId: entry.id || 'mysql',
+      dialect: entry.type === 'mariadb' ? 'mariadb' : 'mysql',
+      connectionConfig: connStr
+    });
+  }
+  if (entry.type === 'sqlite') {
+    const rawAllowed = process.env['SQLITE_ALLOWED_DIRECTORIES'];
+    const allowedDirs = rawAllowed
+      ? rawAllowed.split(',').map((d) => resolve(d.trim())).filter((d) => d.length > 0)
+      : [process.cwd(), resolve(connStr, '..')];
+    return new SqliteAdapter({
+      adapterId: entry.id || 'sqlite',
+      filePath: connStr,
+      allowedDirectories: allowedDirs
+    });
   }
   throw new Error(`Tipo de conexión no soportado: "${String((entry as { type?: unknown }).type)}" (id: ${entry.id}).`);
 }
 
 /** Priority: --config / MCP_CONFIG_PATH file, then POSTGRES_URL / SQLSERVER_URL env, then ~/.db-mcp/config.json. */
-async function loadAdapters(args: ReadonlyArray<string>): Promise<DatabaseAdapter[]> {
+export async function loadAdapters(args: ReadonlyArray<string>): Promise<DatabaseAdapter[]> {
   const configIdx = args.indexOf('--config');
   const explicit = configIdx !== -1 ? args[configIdx + 1] : process.env['MCP_CONFIG_PATH'];
   const adapters: DatabaseAdapter[] = [];
@@ -82,6 +108,14 @@ async function loadAdapters(args: ReadonlyArray<string>): Promise<DatabaseAdapte
   const mssqlUrl = process.env['SQLSERVER_URL'] || process.env['MSSQL_URL'];
   if (mssqlUrl) {
     adapters.push(await buildAdapter({ id: process.env['MSSQL_ADAPTER_ID'] || 'sqlserver', type: 'sqlserver', connectionString: mssqlUrl }));
+  }
+  const mysqlUrl = process.env['MYSQL_URL'] || process.env['MYSQL_URI'];
+  if (mysqlUrl) {
+    adapters.push(await buildAdapter({ id: process.env['MYSQL_ADAPTER_ID'] || 'mysql', type: 'mysql', connectionString: mysqlUrl }));
+  }
+  const sqlitePath = process.env['SQLITE_PATH'] || process.env['SQLITE_URL'];
+  if (sqlitePath) {
+    adapters.push(await buildAdapter({ id: process.env['SQLITE_ADAPTER_ID'] || 'sqlite', type: 'sqlite', connectionString: sqlitePath }));
   }
   if (adapters.length > 0) {
     return adapters;
@@ -106,11 +140,11 @@ async function handleConnectionCommands(command: string, args: ReadonlyArray<str
       const type = flag('--type');
       let url = flag('--url');
       if (!id || id.startsWith('--') || !type) {
-        console.error('Uso: db-mcp add <id> --type postgres|sqlserver [--url <cadena>]');
+        console.error('Uso: db-mcp add <id> --type postgres|sqlserver|mysql|mariadb|sqlite [--url <cadena>]');
         return 1;
       }
       if (!isConnectionType(type)) {
-        console.error(`Tipo inválido "${type}": use "postgres" o "sqlserver".`);
+        console.error(`Tipo inválido "${type}": use "postgres", "sqlserver", "mysql", "mariadb" o "sqlite".`);
         return 1;
       }
       if (!url) {
@@ -154,15 +188,49 @@ async function handleConnectionCommands(command: string, args: ReadonlyArray<str
       return 0;
     }
 
-    // test [id]: connect and run the startup preflight (read-only enforcement) per connection.
+    // test [id] / doctor: connect and run the startup preflight (read-only enforcement) per connection.
+    let failed = 0;
+    let warned = 0;
+
+    if (command === 'doctor') {
+      console.log('=== DB-MCP DOCTOR: Diagnóstico del Sistema ===\n');
+      const major = parseInt(process.versions.node.split('.')[0] || '0', 10);
+      if (major >= 20) {
+        console.log(`✓ Node.js: v${process.versions.node} (compatible con Node.js 20+)`);
+      } else {
+        console.error(`✗ Node.js: v${process.versions.node} (requiere Node.js 20 o superior)`);
+        failed++;
+      }
+
+      console.log(`✓ Configuración: ${configPath} (${existsSync(configPath) ? 'encontrado' : 'no existe aún'})`);
+
+      const auditPath = resolveDefaultAuditLogPath();
+      if (existsSync(auditPath)) {
+        try {
+          const verifier = new AuditVerifier();
+          const auditRes = await verifier.verifyLogFile(auditPath);
+          if (auditRes.isValid) {
+            console.log(`✓ Auditoría: cadena criptográfica intacta (${auditRes.totalEntries} entradas) en ${auditPath}`);
+          } else {
+            console.warn(`⚠ Auditoría: cadena con inconsistencia en ${auditPath} (${auditRes.violatedEntry?.reason})`);
+            warned++;
+          }
+        } catch (auditErr) {
+          console.warn(`⚠ Auditoría: error al verificar cadena (${auditErr instanceof Error ? auditErr.message : auditErr})`);
+          warned++;
+        }
+      } else {
+        console.log(`- Auditoría: archivo aún no generado (${auditPath})`);
+      }
+      console.log('');
+    }
+
     const wanted = args[1] && !args[1].startsWith('--') ? args[1] : undefined;
     const entries = loadConfig(configPath).adapters.filter((a) => !wanted || a.id === wanted);
     if (entries.length === 0) {
       console.error(wanted ? `[DB-MCP ERROR] No existe la conexión "${wanted}".` : '[DB-MCP ERROR] No hay conexiones configuradas.');
       return 1;
     }
-    let failed = 0;
-    let warned = 0;
     for (const entry of entries) {
       let adapter: DatabaseAdapter | undefined;
       try {
@@ -181,7 +249,7 @@ async function handleConnectionCommands(command: string, args: ReadonlyArray<str
             const dialect = adapter.dialect;
             const q = (id: string): string => quoteIdentifier(dialect, id);
             const from = `${q(target.schema)}.${q(target.name)}`;
-            const probeSql = dialect === 'postgres' ? `SELECT * FROM ${from} LIMIT 1` : `SELECT TOP (1) * FROM ${from}`;
+            const probeSql = dialect === 'tsql' ? `SELECT TOP (1) * FROM ${from}` : `SELECT * FROM ${from} LIMIT 1`;
             await adapter.analyzeQueryPlan({ sql: probeSql, params: [] });
             console.log(`✓ ${entry.id}: análisis de plan de ejecución disponible`);
           }
@@ -199,6 +267,14 @@ async function handleConnectionCommands(command: string, args: ReadonlyArray<str
     if (warned > 0) {
       console.error('\nAdvertencia: sin análisis de plan, las consultas quedan en PENDING_APPROVAL hasta que un operador las apruebe.');
     }
+    if (command === 'doctor') {
+      console.log('\n---------------------------------------------');
+      if (failed === 0) {
+        console.log('✓ Diagnóstico completado sin errores críticos.');
+      } else {
+        console.error(`✗ Diagnóstico completado con ${failed} error(es).`);
+      }
+    }
     return failed === 0 ? 0 : 1;
   } catch (err) {
     console.error('[DB-MCP ERROR]', err instanceof Error ? err.message : err);
@@ -213,7 +289,7 @@ export async function handleCli(args: ReadonlyArray<string>): Promise<number> {
     return await runInteractiveInstaller(args.slice(1));
   }
 
-  if (command === 'add' || command === 'remove' || command === 'connections' || command === 'test') {
+  if (command === 'add' || command === 'remove' || command === 'connections' || command === 'test' || command === 'doctor') {
     return await handleConnectionCommands(command, args);
   }
 
@@ -231,6 +307,10 @@ export async function handleCli(args: ReadonlyArray<string>): Promise<number> {
       process.env['PG_URL'] ||
       process.env['SQLSERVER_URL'] ||
       process.env['MSSQL_URL'] ||
+      process.env['MYSQL_URL'] ||
+      process.env['MYSQL_URI'] ||
+      process.env['SQLITE_PATH'] ||
+      process.env['SQLITE_URL'] ||
       process.env['MCP_CONFIG_PATH']
     );
 
@@ -247,7 +327,7 @@ export async function handleCli(args: ReadonlyArray<string>): Promise<number> {
       console.error(
         '[DB-MCP ERROR] No se configuraron adaptadores de base de datos.\n' +
         `Ejecute "db-mcp add <id> --type postgres|sqlserver --url <cadena>" (se guarda en ${defaultConfigPath()}), ` +
-        'defina POSTGRES_URL / SQLSERVER_URL o use --config <archivo.json>.'
+        'defina POSTGRES_URL / SQLSERVER_URL / MYSQL_URL / SQLITE_PATH o use --config <archivo.json>.'
       );
       return 1;
     }
@@ -268,6 +348,29 @@ export async function handleCli(args: ReadonlyArray<string>): Promise<number> {
       });
 
       const transport = new StdioServerTransport();
+
+      const cleanup = async () => {
+        try {
+          await server.close();
+          await registry.closeAll();
+        } catch {
+          // Ignore errors during process exit
+        }
+      };
+
+      process.on('SIGINT', async () => {
+        await cleanup();
+        process.exit(0);
+      });
+      process.on('SIGTERM', async () => {
+        await cleanup();
+        process.exit(0);
+      });
+      transport.onclose = async () => {
+        await cleanup();
+        process.exit(0);
+      };
+
       await server.connect(transport);
       console.error('[DB-MCP] Servidor MCP conectado exitosamente sobre Stdio.');
       return new Promise<number>(() => {}); // Keep alive

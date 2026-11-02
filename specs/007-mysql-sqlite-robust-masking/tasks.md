@@ -169,11 +169,11 @@ description: "Task list for MySQL/MariaDB, SQLite connectors and robust sensitiv
 
 **Purpose**: Multi-engine adversarial security hardening, end-to-end quickstart validation, and typecheck verification.
 
-- [ ] T042 [P] Create multi-engine adversarial test suite executing corpus attacks (`corpus/adversarial-attacks.json`) against MySQL and SQLite in `tests/adversarial/adversarial-suite-multi-engine.spec.ts`
-- [ ] T043 [P] Update CLI options and environment variable loading (`SQLITE_ALLOWED_DIRECTORIES`, `MASKING_CUSTOM_PREFIXES`, MySQL env vars) in `src/bin/db-mcp.ts`
-- [ ] T044 Update documentation in `README.md` and `docs/` reflecting MySQL, MariaDB, SQLite support and NIT masking configuration
-- [ ] T045 Execute full quickstart validation scenarios (Escenarios 1 al 6) per `specs/007-mysql-sqlite-robust-masking/quickstart.md`
-- [ ] T046 Run full TypeScript strict typecheck (`npm run typecheck`) and build verification (`npm run build`)
+- [X] T042 [P] Create multi-engine adversarial test suite executing corpus attacks (`corpus/adversarial-attacks.json`) against MySQL and SQLite in `tests/adversarial/adversarial-suite-multi-engine.spec.ts`
+- [X] T043 [P] Update CLI options and environment variable loading (`SQLITE_ALLOWED_DIRECTORIES`, `MASKING_CUSTOM_PREFIXES`, MySQL env vars) in `src/bin/db-mcp.ts`
+- [X] T044 Update documentation in `README.md` and `docs/` reflecting MySQL, MariaDB, SQLite support and NIT masking configuration
+- [X] T045 Execute full quickstart validation scenarios (Escenarios 1 al 6) per `specs/007-mysql-sqlite-robust-masking/quickstart.md`
+- [X] T046 Run full TypeScript strict typecheck (`npm run typecheck`) and build verification (`npm run build`)
 
 ---
 

@@ -193,6 +193,12 @@ What still gets missed in the 100-table schema are columns with no name hint who
 | `PG_ADAPTER_ID` | Adapter id for the PostgreSQL URL | `postgres` |
 | `SQLSERVER_URL` / `MSSQL_URL` | SQL Server connection string | none |
 | `MSSQL_ADAPTER_ID` | Adapter id for the SQL Server URL | `sqlserver` |
+| `MYSQL_URL` / `MYSQL_URI` | MySQL / MariaDB connection string | none |
+| `MYSQL_ADAPTER_ID` | Adapter id for the MySQL URL | `mysql` |
+| `SQLITE_PATH` / `SQLITE_URL` | SQLite database file path | none |
+| `SQLITE_ADAPTER_ID` | Adapter id for the SQLite connection | `sqlite` |
+| `SQLITE_ALLOWED_DIRECTORIES` | Comma-separated whitelist of allowed directories for SQLite files | current dir + db dir |
+| `MASKING_CUSTOM_PREFIXES` | Comma-separated custom prefixes for continuous column name segmentation | none |
 | `MCP_CONFIG_PATH` | JSON file with several adapters | none |
 | `AUDIT_LOG_PATH` | Append-only audit file | `./audit.jsonl` if it exists, else `~/.db-mcp/audit.jsonl` |
 | `APPROVAL_STORE_PATH` | Pending approval tickets | `~/.db-mcp/pending_approvals.json` |
@@ -250,6 +256,7 @@ claude mcp list
 Humans approve quarantined queries and manage connections from the same binary:
 
 ```bash
+db-mcp doctor                                    # comprehensive system, audit & adapter diagnostics
 db-mcp list-pending                              # queries waiting for approval
 db-mcp approve <approvalId> --reason "Reviewed"  # or: db-mcp approve latest
 db-mcp reject  <approvalId> --reason "Too costly"

@@ -149,6 +149,8 @@ export interface InstallerFlags {
   readonly agent?: string;
   readonly pgUrl?: string;
   readonly mssqlUrl?: string;
+  readonly mysqlUrl?: string;
+  readonly sqlitePath?: string;
   readonly auditPath?: string;
   readonly mode?: string;
   readonly yes: boolean;
@@ -164,6 +166,8 @@ export function parseInstallerFlags(args: ReadonlyArray<string>): InstallerFlags
     agent: read('--agent'),
     pgUrl: read('--pg-url'),
     mssqlUrl: read('--mssql-url'),
+    mysqlUrl: read('--mysql-url'),
+    sqlitePath: read('--sqlite-path') || read('--sqlite-url'),
     auditPath: read('--audit-path'),
     mode: read('--mode'),
     yes: args.includes('--yes') || args.includes('-y')
@@ -231,7 +235,7 @@ export async function runInteractiveInstaller(args: ReadonlyArray<string>): Prom
       }
     }
 
-    if (!nonInteractive && flags.pgUrl === undefined && flags.mssqlUrl === undefined) {
+    if (!nonInteractive && flags.pgUrl === undefined && flags.mssqlUrl === undefined && flags.mysqlUrl === undefined && flags.sqlitePath === undefined) {
       console.log('\n------------------------------------------------------');
       console.log('  Configuración de Conexiones a Bases de Datos        ');
       console.log('------------------------------------------------------');
@@ -246,10 +250,24 @@ export async function runInteractiveInstaller(args: ReadonlyArray<string>): Prom
       'Cadena de conexión SQL Server (ej. Server=localhost,1433;Database=mibase;User Id=ro_user;Password=pass;TrustServerCertificate=true;):\n> ',
       flags.mssqlUrl ?? (nonInteractive ? process.env['SQLSERVER_URL'] ?? '' : undefined)
     );
+    const mysqlUrl = await ask(
+      'Cadena de conexión MySQL/MariaDB (ej. mysql://ro_user:pass@localhost:3306/mibase):\n> ',
+      flags.mysqlUrl ?? (nonInteractive ? process.env['MYSQL_URL'] ?? '' : undefined)
+    );
+    const sqlitePath = await ask(
+      'Ruta a base de datos SQLite (ej. ./data/empresa.sqlite):\n> ',
+      flags.sqlitePath ?? (nonInteractive ? process.env['SQLITE_PATH'] ?? '' : undefined)
+    );
 
-    if (!pgUrl.trim() && !mssqlUrl.trim() && loadConfig(defaultConfigPath()).adapters.length === 0) {
+    if (
+      !pgUrl.trim() &&
+      !mssqlUrl.trim() &&
+      !mysqlUrl.trim() &&
+      !sqlitePath.trim() &&
+      loadConfig(defaultConfigPath()).adapters.length === 0
+    ) {
       console.error(
-        '\n[AVISO] No hay conexiones configuradas: agrégalas con `db-mcp add <id> --type postgres|sqlserver --url <cadena>`.'
+        '\n[AVISO] No hay conexiones configuradas: agrégalas con `db-mcp add <id> --type postgres|sqlserver|mysql|sqlite --url <cadena>`.'
       );
     }
 
@@ -277,7 +295,13 @@ export async function runInteractiveInstaller(args: ReadonlyArray<string>): Prom
     if (mssqlUrl.trim()) {
       upsertConnection(configPath, { id: 'sqlserver', type: 'sqlserver', connectionString: mssqlUrl.trim() });
     }
-    if (pgUrl.trim() || mssqlUrl.trim()) {
+    if (mysqlUrl.trim()) {
+      upsertConnection(configPath, { id: 'mysql', type: 'mysql', connectionString: mysqlUrl.trim() });
+    }
+    if (sqlitePath.trim()) {
+      upsertConnection(configPath, { id: 'sqlite', type: 'sqlite', connectionString: sqlitePath.trim() });
+    }
+    if (pgUrl.trim() || mssqlUrl.trim() || mysqlUrl.trim() || sqlitePath.trim()) {
       console.log(`\n✓ Credenciales guardadas en ${configPath} (solo lectura para tu usuario)`);
     }
 

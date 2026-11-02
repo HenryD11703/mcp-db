@@ -99,6 +99,11 @@ export * from './adapters/postgres/postgres-adapter.js';
 export * from './adapters/postgres/postgres-plan-parser.js';
 export * from './adapters/sqlserver/sqlserver-adapter.js';
 export * from './adapters/sqlserver/sqlserver-plan-parser.js';
+export * from './adapters/mysql/index.js';
+export * from './adapters/sqlite/index.js';
+export * from './core/security/lexical-column-analyzer.js';
+export * from './core/security/unified-prefix-catalog.js';
+export * from './core/security/safe-vocabulary-dict.js';
 
 export interface DatabaseMcpServerOptions {
   readonly maskingEngine?: IDataMaskingEngine;
@@ -182,7 +187,7 @@ export function createDatabaseMcpServer(
   const server = new Server(
     {
       name: 'db-mcp-node',
-      version: '0.4.0'
+      version: '1.0.0'
     },
     {
       capabilities: {

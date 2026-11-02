@@ -41,7 +41,7 @@ export interface MySqlAdapterOptions {
   readonly adapterId: string;
   readonly dialect?: 'mysql' | 'mariadb';
   readonly pool?: MySqlDriverPool;
-  readonly connectionConfig?: mysql.PoolOptions;
+  readonly connectionConfig?: mysql.PoolOptions | string;
 }
 
 function parseMySqlExplainJson(raw: unknown, adapterId: string): NormalizedRiskProfile {
@@ -124,7 +124,7 @@ export class MySqlAdapter implements DatabaseAdapter {
     if (options.pool) {
       this.pool = options.pool;
     } else if (options.connectionConfig) {
-      const pool = mysql.createPool(options.connectionConfig);
+      const pool = mysql.createPool(options.connectionConfig as any);
       this.pool = {
         async getConnection(): Promise<MySqlDriverConnection> {
           const conn = await pool.getConnection();

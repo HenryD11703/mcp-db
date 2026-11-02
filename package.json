@@ -1,6 +1,6 @@
 {
   "name": "db-mcp-node",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "description": "Read-only relational database MCP server with strict DatabaseAdapter contract and adversarial security suite",
   "author": "HenryD11703 <3680558330101@ingenieria.usac.edu.gt>",
   "repository": {
@@ -14,7 +14,8 @@
     "dist/src/",
     "docs/glossary.yaml",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "bin": {
     "audit-verify": "dist/src/bin/audit-verify.js",
@@ -25,10 +26,10 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "test:audit": "vitest run tests/unit/audit-*.spec.ts tests/unit/sql-sanitizer-for-audit.spec.ts",
+    "test:audit": "vitest run tests/unit/audit-hasher.spec.ts tests/unit/audit-logger.spec.ts tests/unit/audit-no-raw-pii-multi-engine.spec.ts tests/unit/audit-rotation.spec.ts tests/unit/audit-verifier.spec.ts tests/unit/sql-sanitizer-for-audit.spec.ts",
     "test:limits": "vitest run tests/unit/limits",
-    "test:rate-limit": "vitest run tests/unit/limits/rate-limiter.test.ts",
-    "test:approval": "vitest run tests/unit/limits/pending-approval-store.test.ts tests/contract/approval-flow.test.ts",
+    "test:rate-limit": "vitest run tests/unit/limits/rate-limiter.spec.ts",
+    "test:approval": "vitest run tests/unit/limits/pending-approval-store.spec.ts tests/contract/approval-flow.spec.ts",
     "cli:db-mcp": "node dist/src/bin/db-mcp.js",
     "install:mcp": "node dist/src/bin/db-mcp.js install",
     "audit:verify": "tsx src/bin/audit-verify.ts",

@@ -85,8 +85,24 @@ describe('MCP Interactive Installer (Agent Discovery & Configuration)', () => {
   });
 
   it('parses non-interactive installer flags', () => {
-    const flags = parseInstallerFlags(['--yes', '--agent', 'claude-code', '--pg-url', 'postgresql://x', '--mode', 'npx']);
-    expect(flags).toMatchObject({ yes: true, agent: 'claude-code', pgUrl: 'postgresql://x', mode: 'npx' });
+    const flags = parseInstallerFlags([
+      '--yes',
+      '--agent', 'claude-code',
+      '--pg-url', 'postgresql://x',
+      '--mssql-url', 'Server=y',
+      '--mysql-url', 'mysql://z',
+      '--sqlite-path', './data/test.sqlite',
+      '--mode', 'npx'
+    ]);
+    expect(flags).toMatchObject({
+      yes: true,
+      agent: 'claude-code',
+      pgUrl: 'postgresql://x',
+      mssqlUrl: 'Server=y',
+      mysqlUrl: 'mysql://z',
+      sqlitePath: './data/test.sqlite',
+      mode: 'npx'
+    });
   });
 
   it('writes config to target file safely and preserves existing servers', () => {
