@@ -38,20 +38,28 @@
     "test:discovery": "vitest run tests/unit/discovery tests/unit/glossary tests/contract/mcp-discovery.spec.ts tests/contract/catalog-adapters.spec.ts tests/adversarial/discovery.spec.ts",
     "test:unit": "vitest run tests/unit",
     "test:security": "vitest run tests/unit/sql-security-guard.spec.ts tests/unit/startup-preflight-gate.spec.ts",
-    "test:masking": "vitest run tests/unit/data-masking-engine.spec.ts tests/unit/zero-trust-sanitizer.spec.ts"
+    "test:masking": "vitest run tests/unit/data-masking-engine.spec.ts tests/unit/zero-trust-sanitizer.spec.ts",
+    "legacy-bank:up": "docker compose -f docker-compose.legacy-bank.yml up -d",
+    "legacy-bank:down": "docker compose -f docker-compose.legacy-bank.yml down -v",
+    "legacy-bank:seed": "tsx scripts/legacy-bank/seed-all.ts",
+    "legacy-bank:validate": "tsx scripts/legacy-bank/validate.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",
+    "better-sqlite3": "^13.0.3",
     "mssql": "^11.0.1",
+    "mysql2": "^3.24.6",
     "node-sql-parser": "^5.3.6",
     "pg": "^8.13.1",
     "yaml": "^2.9.1",
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
     "@types/mssql": "^9.1.5",
     "@types/node": "^22.10.2",
     "@types/pg": "^8.11.10",
+    "tsx": "^4.23.15",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
   },
