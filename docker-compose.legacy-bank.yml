@@ -1,0 +1,49 @@
+services:
+  legacy-bank-mysql:
+    image: mysql:8.0
+    container_name: legacy-bank-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${LEGACY_BANK_MYSQL_ROOT_PASSWORD:-legacyBank_r00t!}
+      MYSQL_DATABASE: banco_legado
+    ports:
+      - '3307:3306'
+    tmpfs:
+      - /var/lib/mysql
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost', '-uroot', '-p${LEGACY_BANK_MYSQL_ROOT_PASSWORD:-legacyBank_r00t!}']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  legacy-bank-postgres:
+    image: postgres:16
+    container_name: legacy-bank-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${LEGACY_BANK_PG_PASSWORD:-legacyBank_r00t!}
+      POSTGRES_DB: banco_legado
+    ports:
+      - '5433:5432'
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  legacy-bank-mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: legacy-bank-mssql
+    restart: unless-stopped
+    environment:
+      ACCEPT_EULA: 'Y'
+      MSSQL_SA_PASSWORD: ${LEGACY_BANK_MSSQL_SA_PASSWORD:-LegacyBank_r00t!2026}
+    ports:
+      - '1434:1433'
+    healthcheck:
+      test: ['CMD-SHELL', '/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P "$$MSSQL_SA_PASSWORD" -Q "SELECT 1" || exit 1']
+      interval: 10s
+      timeout: 10s
+      retries: 20
