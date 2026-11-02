@@ -3,10 +3,20 @@ import type { ISessionPseudonymContext } from '../../contracts/federated-query.c
 
 /**
  * Session-bound ephemeral deterministic pseudonymization context (Principio IV, FR-018 to FR-020).
- * Computes deterministic hashes formatted as `pseudo_<16_hex>` using HMAC-SHA256 with an in-memory 32-byte salt.
+ * Computes deterministic hashes formatted as `<prefix>_<12_hex>` using HMAC-SHA256 with an in-memory 32-byte salt.
  * The salt is never persisted to disk or sent to the client; destroyed upon session termination.
  */
 export class SessionPseudonymContext implements ISessionPseudonymContext {
+  private static defaultInstance: SessionPseudonymContext = new SessionPseudonymContext();
+
+  public static getDefaultInstance(): SessionPseudonymContext {
+    return SessionPseudonymContext.defaultInstance;
+  }
+
+  public static resetDefaultSession(): void {
+    SessionPseudonymContext.defaultInstance.clearSession();
+  }
+
   public readonly sessionId: string;
   private ephemeralSalt: Buffer;
   private readonly cache = new Map<string, string>();
@@ -16,18 +26,18 @@ export class SessionPseudonymContext implements ISessionPseudonymContext {
     this.ephemeralSalt = customSalt ?? randomBytes(32);
   }
 
-  public getPseudonym(rawValue: string | number): string {
-    const key = String(rawValue);
+  public getPseudonym(rawValue: string | number, prefix: string = 'pseudo'): string {
+    const key = `${prefix}:${rawValue}`;
     const cached = this.cache.get(key);
     if (cached) {
       return cached;
     }
 
     const digest = createHmac('sha256', this.ephemeralSalt)
-      .update(key, 'utf8')
+      .update(String(rawValue), 'utf8')
       .digest('hex');
 
-    const pseudonym = `pseudo_${digest.slice(0, 16)}`;
+    const pseudonym = `${prefix}_${digest.slice(0, 16)}`;
     this.cache.set(key, pseudonym);
     return pseudonym;
   }
@@ -47,3 +57,6 @@ export class SessionPseudonymContext implements ISessionPseudonymContext {
     this.ephemeralSalt = randomBytes(32);
   }
 }
+
+export const defaultSessionContext = SessionPseudonymContext.getDefaultInstance();
+export const SessionContext = SessionPseudonymContext;

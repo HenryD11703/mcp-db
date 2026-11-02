@@ -3,6 +3,14 @@ import type { MaskingProfile, MaskingRule } from '../../contracts/security.contr
 export const DEFAULT_MASKING_RULES: ReadonlyArray<MaskingRule> = [
   // 1. Column-name based rules
   {
+    id: 'col-nit',
+    targetType: 'column_name',
+    matcher: /(^|_)(nit|tax_?id|taxid)($|_)/i,
+    dataType: 'nit',
+    strategy: 'partial',
+    enabled: true
+  },
+  {
     id: 'col-email',
     targetType: 'column_name',
     matcher: /(^|_)(email|correo|e_mail|mail)($|_)/i,
@@ -35,7 +43,7 @@ export const DEFAULT_MASKING_RULES: ReadonlyArray<MaskingRule> = [
     enabled: true
   },
 
-  // 2. Content-pattern based rules (evaluated in priority order: email -> DPI -> amount -> phone)
+  // 2. Content-pattern based rules (evaluated in priority order: email -> DPI -> NIT -> amount -> phone)
   {
     id: 'pat-email',
     targetType: 'content_pattern',
@@ -49,6 +57,14 @@ export const DEFAULT_MASKING_RULES: ReadonlyArray<MaskingRule> = [
     targetType: 'content_pattern',
     matcher: /\b\d{4}\s?\d{5}\s?\d{4}\b/g,
     dataType: 'dpi',
+    strategy: 'partial',
+    enabled: true
+  },
+  {
+    id: 'pat-nit',
+    targetType: 'content_pattern',
+    matcher: /\b\d{2,8}-[0-9kK]\b/g,
+    dataType: 'nit',
     strategy: 'partial',
     enabled: true
   },
@@ -73,7 +89,7 @@ export const DEFAULT_MASKING_RULES: ReadonlyArray<MaskingRule> = [
 export const DEFAULT_MASKING_PROFILE: MaskingProfile = {
   profileName: 'default-security-profile',
   description:
-    'Default enterprise masking profile for emails, phone numbers, Guatemala 13-digit DPI, and monetary amounts.',
+    'Default enterprise masking profile for emails, phone numbers, Guatemala 13-digit DPI, NIT, and monetary amounts.',
   rules: DEFAULT_MASKING_RULES,
   maskUnmatchedAmounts: false
 };

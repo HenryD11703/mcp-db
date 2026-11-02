@@ -9,8 +9,10 @@ import { DEFAULT_MASKING_PROFILE } from './default-masking-profile.js';
 import {
   applyMaskingStrategy,
   compileRuleMatcher,
-  doesColumnMatchRule
+  doesColumnMatchRule,
+  isValidNitContent
 } from './masking-rules.js';
+import { LexicalColumnAnalyzer } from './lexical-column-analyzer.js';
 
 /**
  * In-Memory Data Masking Engine (`FR-015` to `FR-020`, Principle IV).
@@ -19,9 +21,34 @@ import {
  */
 export class DataMaskingEngine implements IDataMaskingEngine {
   private readonly defaultProfile: MaskingProfile;
+  private readonly lexicalAnalyzer = new LexicalColumnAnalyzer();
 
   constructor(defaultProfile: MaskingProfile = DEFAULT_MASKING_PROFILE) {
     this.defaultProfile = defaultProfile;
+  }
+
+  private resolveColumnRule(
+    colName: string,
+    columnRules: ReadonlyArray<MaskingRule>
+  ): MaskingRule | undefined {
+    // 1. Detección léxica robusta (Capa 0 a 4)
+    const lexical = this.lexicalAnalyzer.classifyColumn(colName);
+    if (lexical.isSensitive && lexical.confidence !== 'none') {
+      const configured = columnRules.find((r) => r.dataType === lexical.dataType);
+      return {
+        id: `lex-${lexical.dataType}-${colName}`,
+        targetType: 'column_name',
+        matcher: colName,
+        dataType: lexical.dataType,
+        strategy:
+          configured?.strategy ??
+          (lexical.dataType === 'amount' ? 'mask_amount' : 'partial'),
+        enabled: true
+      };
+    }
+
+    // 2. Reglas estándar de perfil
+    return columnRules.find((r) => doesColumnMatchRule(colName, r));
   }
 
   public maskDataset(
@@ -36,7 +63,7 @@ export class DataMaskingEngine implements IDataMaskingEngine {
     // Pre-resolve column-level rules by column name
     const columnRuleMap = new Map<string, MaskingRule>();
     for (const col of result.columns) {
-      const matched = columnRules.find((r) => doesColumnMatchRule(col.name, r));
+      const matched = this.resolveColumnRule(col.name, columnRules);
       if (matched) {
         columnRuleMap.set(col.name, matched);
       }
@@ -54,10 +81,10 @@ export class DataMaskingEngine implements IDataMaskingEngine {
           continue;
         }
 
-        // 1. Check column-level rule (including dynamic columns not listed in result.columns)
+        // 1. Check column-level rule
         let colRule = columnRuleMap.get(colName);
         if (!colRule) {
-          colRule = columnRules.find((r) => doesColumnMatchRule(colName, r));
+          colRule = this.resolveColumnRule(colName, columnRules);
           if (colRule) {
             columnRuleMap.set(colName, colRule);
           }
@@ -75,7 +102,7 @@ export class DataMaskingEngine implements IDataMaskingEngine {
           continue;
         }
 
-        // 2. Evaluate content-pattern rules over string values
+        // 2. Evaluate content-pattern rules over string values (cell fallback)
         if (typeof rawVal === 'string') {
           let currentStr = rawVal;
           let cellWasMasked = false;
@@ -88,6 +115,10 @@ export class DataMaskingEngine implements IDataMaskingEngine {
             );
 
             const replaced = currentStr.replace(globalRegex, (match) => {
+              if (patRule.dataType === 'nit' && !isValidNitContent(match)) {
+                return match;
+              }
+
               cellWasMasked = true;
               return applyMaskingStrategy(
                 match,
@@ -113,11 +144,12 @@ export class DataMaskingEngine implements IDataMaskingEngine {
       maskedRows.push(newRow);
     }
 
-    const durationMs = Math.max(0, performance.now() - startTime);
+    const durationMs = performance.now() - startTime;
+
     return {
       columns: result.columns,
       rows: maskedRows,
-      rowCount: maskedRows.length,
+      rowCount: result.rowCount,
       maskedCellsCount,
       durationMs
     };

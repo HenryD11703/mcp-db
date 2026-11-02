@@ -1,3 +1,4 @@
+import { defaultSessionContext } from './session-pseudonym.js';
 import { z } from 'zod';
 import type {
   MaskingProfile,
@@ -7,8 +8,8 @@ import type {
 } from '../../contracts/security.contract.js';
 import { DataMaskingError } from '../errors.js';
 
-export const SensitiveDataTypeSchema = z.enum(['email', 'phone', 'dpi', 'amount', 'custom']);
-export const MaskingStrategySchema = z.enum(['partial', 'redact', 'mask_amount', 'custom']);
+export const SensitiveDataTypeSchema = z.enum(['email', 'phone', 'dpi', 'nit', 'amount', 'custom']);
+export const MaskingStrategySchema = z.enum(['partial', 'redact', 'session_pseudonym', 'mask_amount', 'custom']);
 export const MaskingTargetTypeSchema = z.enum(['column_name', 'content_pattern']);
 
 export const MaskingRuleConfigSchema = z.object({
@@ -102,6 +103,79 @@ export function formatMaskedAmount(raw: string | number, customMask?: string): s
   return 'Q [ENMASCARADO]';
 }
 
+export const NIT_HYPHENATED_REGEX = /\b\d{2,8}-[0-9kK]\b/g;
+
+/**
+ * Validador de dígito verificador de NIT guatemalteco (Algoritmo Módulo 11 de la SAT).
+ */
+export function validateNitChecksumModulo11(raw: string): boolean {
+  const clean = raw.trim().replace(/[^0-9kK]/gi, '');
+  if (clean.length < 2 || clean.length > 10) {
+    return false;
+  }
+  const body = clean.slice(0, -1);
+  const expectedCheckDigit = clean.slice(-1).toUpperCase();
+
+  let sum = 0;
+  const factorBase = body.length + 1;
+  for (let i = 0; i < body.length; i++) {
+    const digit = parseInt(body[i]!, 10);
+    if (isNaN(digit)) return false;
+    sum += digit * (factorBase - i);
+  }
+
+  const remainder = sum % 11;
+  const checkVal = (11 - remainder) % 11;
+  const calculatedCheckDigit = checkVal === 10 ? 'K' : String(checkVal);
+
+  return calculatedCheckDigit === expectedCheckDigit;
+}
+
+/**
+ * Verifica si un valor califica como NIT legítimo mediante formato con guion o checksum Módulo 11.
+ * Excluye enteros generales de pocos dígitos (años como 2024, códigos postales, etc.).
+ */
+export function isValidNitContent(value: unknown): boolean {
+  if (value === null || value === undefined) return false;
+  const str = String(value).trim();
+  if (/\b\d{2,8}-[0-9kK]\b/i.test(str)) {
+    return true;
+  }
+  const clean = str.replace(/[^0-9kK]/gi, '');
+  if (clean.length >= 6 && clean.length <= 10) {
+    return validateNitChecksumModulo11(clean);
+  }
+  return false;
+}
+
+/**
+ * Enmascara un NIT preservando el guion y el dígito verificador (o mediante redacción / pseudonimización).
+ * - "1234567-4" -> "*******-4"
+ * - "1234567K" -> "******-K"
+ */
+export function formatMaskedNit(
+  raw: string,
+  strategy: MaskingStrategy = 'partial',
+  customMask?: string
+): string {
+  if (strategy === 'redact') {
+    return customMask ?? '[NIT ENMASCARADO]';
+  }
+  if (strategy === 'session_pseudonym' && customMask) {
+    return customMask;
+  }
+  const trimmed = raw.trim();
+  const hasHyphen = trimmed.includes('-');
+  const clean = trimmed.replace(/[^0-9kK]/gi, '');
+  if (clean.length < 2) {
+    return '***';
+  }
+  const checkDigit = clean.slice(-1).toUpperCase();
+  const maskedLength = clean.length - 1;
+  const asterisks = '*'.repeat(maskedLength);
+  return hasHyphen ? `${asterisks}-${checkDigit}` : `${asterisks}${checkDigit}`;
+}
+
 /**
  * Applies a single MaskingRule strategy to a string or number value.
  */
@@ -118,6 +192,9 @@ export function applyMaskingStrategy(
   if (strategy === 'redact') {
     return customMask ?? '[REDACTED]';
   }
+  if (strategy === 'session_pseudonym') {
+    return customMask ?? defaultSessionContext.getPseudonym(raw, dataType);
+  }
   if (strategy === 'mask_amount' || dataType === 'amount') {
     return formatMaskedAmount(raw, customMask);
   }
@@ -126,6 +203,8 @@ export function applyMaskingStrategy(
       return formatMaskedEmail(raw);
     case 'phone':
       return formatMaskedPhone(raw);
+    case 'nit':
+      return formatMaskedNit(raw, strategy, customMask);
     case 'dpi':
       return formatMaskedDpi(raw);
     default:
