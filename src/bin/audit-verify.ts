@@ -1,11 +1,26 @@
 #!/usr/bin/env node
-import { resolve } from 'node:path';
+import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { AuditVerifier } from '../core/audit/audit-verifier.js';
+
+function resolveAuditTarget(explicitArg?: string): string {
+  if (explicitArg) {
+    return resolve(process.cwd(), explicitArg);
+  }
+  if (process.env['AUDIT_LOG_PATH']) {
+    return resolve(process.cwd(), process.env['AUDIT_LOG_PATH']);
+  }
+  const cwdAudit = resolve(process.cwd(), 'audit.jsonl');
+  if (existsSync(cwdAudit)) {
+    return cwdAudit;
+  }
+  return join(homedir(), '.db-mcp', 'audit.jsonl');
+}
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
-  const targetFile = args[0] || process.env['AUDIT_LOG_PATH'] || 'audit.jsonl';
-  const resolvedPath = resolve(process.cwd(), targetFile);
+  const resolvedPath = resolveAuditTarget(args[0]);
 
   console.log(`[AUDIT-VERIFY] Verifying audit log integrity: ${resolvedPath}`);
 

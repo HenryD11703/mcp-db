@@ -1,6 +1,7 @@
 import type { TableMetadata } from '../../contracts/database-adapter.js';
 import {
   isCatalogCapable,
+  type CatalogCapableAdapter,
   type CatalogSnapshot,
   type ColumnRef,
   type InferenceRunInput,
@@ -13,16 +14,21 @@ import {
   entityTokensOfColumn,
   entityTokensOfTable,
   isGenericColumn,
+  isIdToken,
   normalizeName,
+  tokenize,
   type TokenizerOptions
 } from './name-tokenizer.js';
 import {
   combineScore,
+  containmentOnlyScore,
   levelOf,
   lexicalScore,
   typeCompatibility,
+  typeFamily,
   TYPE_GATE
 } from './inference-scoring.js';
+import { MAX_MULTI_CONTAINMENT_PARENTS } from './containment-sql.js';
 import { parseQualifiedName, resolveTable } from './table-resolution.js';
 
 export interface RelationshipInferenceOptions extends TokenizerOptions {
@@ -31,6 +37,8 @@ export interface RelationshipInferenceOptions extends TokenizerOptions {
   readonly maxSamplings?: number;
   readonly defaultMinConfidence?: number;
   readonly maxResults?: number;
+  /** Extra sampling budget for columns with no name evidence (value-containment-only discovery). */
+  readonly maxContainmentOnlySamplings?: number;
 }
 
 interface ParentKey {
@@ -52,6 +60,14 @@ interface Candidate {
   prelim: number;
 }
 
+/** A column whose values fit more parents than this carries no usable signal. */
+const MAX_REPORTED_TIES = 5;
+const TIE_PENALTY = 0.05;
+
+function parentRef(p: ParentKey): ColumnRef {
+  return { schema: p.table.schema, table: p.table.name, column: p.column };
+}
+
 const SAMPLING_FLOOR = 0.5;
 const SAMPLING_MARGIN = 0.15;
 /** Minimum sampled values needed before a low containment ratio discards the candidate. */
@@ -67,14 +83,16 @@ export class RelationshipInferenceEngine implements IRelationshipInferenceEngine
   private readonly maxSamplings: number;
   private readonly defaultMinConfidence: number;
   private readonly maxResults: number;
+  private readonly maxContainmentOnlySamplings: number;
   private readonly tokenizerOptions: TokenizerOptions;
 
   constructor(options: RelationshipInferenceOptions = {}) {
     this.sampleTimeoutMs = options.sampleTimeoutMs ?? 1000;
     this.maxSample = Math.min(100, options.maxSample ?? 100);
-    this.maxSamplings = options.maxSamplings ?? 25;
+    this.maxSamplings = options.maxSamplings ?? 150;
     this.defaultMinConfidence = options.defaultMinConfidence ?? 0.7;
     this.maxResults = options.maxResults ?? 200;
+    this.maxContainmentOnlySamplings = options.maxContainmentOnlySamplings ?? 400;
     this.tokenizerOptions = options.abbreviations ? { abbreviations: options.abbreviations } : {};
   }
 
@@ -158,12 +176,165 @@ export class RelationshipInferenceEngine implements IRelationshipInferenceEngine
       });
     }
 
+    if (canSample) {
+      results.push(
+        ...(await this.inferByContainmentOnly(adapter, tables, parentKeys, requested, declared, candidates, minConfidence, signal))
+      );
+    }
+
     results.sort(
       (a, b) =>
         b.score - a.score ||
         `${a.child.table}.${a.child.column}`.localeCompare(`${b.child.table}.${b.child.column}`)
     );
     return results.slice(0, this.maxResults);
+  }
+
+  /**
+   * Second pass for child columns that no name rule linked to any parent (e.g. `cod_jefe` -> `cod_usr`,
+   * a self-reference, or `cliente` -> `cod_cli`). Each eligible child column is tested against every
+   * same-family unique key in one round trip when the adapter supports it. The only evidence is that
+   * the sampled child values exist in the parent key, so scores stay modest, and when several parents
+   * fit equally well the result is reported as ambiguous instead of picking one.
+   */
+  private async inferByContainmentOnly(
+    adapter: object,
+    tables: ReadonlyArray<TableMetadata>,
+    parentKeys: ReadonlyArray<ParentKey>,
+    requested: ReadonlySet<string>,
+    declared: ReadonlySet<string>,
+    named: ReadonlyArray<Candidate>,
+    minConfidence: number,
+    signal?: AbortSignal
+  ): Promise<InferredRelationship[]> {
+    const withNameEvidence = new Set(
+      named.map((c) => `${c.child.schema}\u0000${c.child.table}\u0000${c.child.column}`)
+    );
+    const groups: Array<{ child: ColumnRef; childType: string; idLike: boolean; parents: ParentKey[] }> = [];
+
+    for (const table of tables) {
+      if (table.kind !== 'TABLE' || !requested.has(keyOf(table.schema, table.name))) {
+        continue;
+      }
+      for (const col of table.columns) {
+        const colKey = `${table.schema}\u0000${table.name}\u0000${col.name}`;
+        if (declared.has(colKey) || withNameEvidence.has(colKey) || isGenericColumn(col.name)) {
+          continue;
+        }
+        if (table.primaryKeyColumns.length === 1 && table.primaryKeyColumns[0] === col.name) {
+          continue; // the table's own identity, not a reference
+        }
+        const family = typeFamily(col.dataType);
+        if (family !== 'int' && family !== 'string' && family !== 'uuid') {
+          continue;
+        }
+        const idLike = tokenizeHasId(col.name);
+        if (family === 'int' && !idLike) {
+          continue; // plain integers (quantities, lines) overlap dense keys by chance
+        }
+        const parents = parentKeys.filter(
+          (p) =>
+            typeFamily(p.dataType) === family &&
+            !(p.table.schema === table.schema && p.table.name === table.name && p.column === col.name)
+        );
+        if (parents.length > 0) {
+          groups.push({ child: { schema: table.schema, table: table.name, column: col.name }, childType: col.dataType, idLike, parents });
+        }
+      }
+    }
+
+    groups.sort((a, b) => Number(b.idLike) - Number(a.idLike));
+    const many = isCatalogCapable(adapter) ? adapter.sampleContainmentMany?.bind(adapter) : undefined;
+    const out: InferredRelationship[] = [];
+    let budget = this.maxContainmentOnlySamplings;
+
+    for (const group of groups) {
+      if (budget <= 0 || signal?.aborted) {
+        break;
+      }
+      const evidence = new Map<ParentKey, { sampled: number; ratio: number }>();
+
+      for (let i = 0; i < group.parents.length && budget > 0; i += MAX_MULTI_CONTAINMENT_PARENTS) {
+        const chunk = group.parents.slice(i, i + MAX_MULTI_CONTAINMENT_PARENTS);
+        const refs = chunk.map(parentRef);
+        let results: ReadonlyArray<{ sampled: number; matched: number }> | undefined;
+        if (many) {
+          budget -= 1;
+          results = await this.sampleMany(many, group.child, refs, signal);
+        }
+        if (!results) {
+          // Adapter without the batch probe, or the batch failed (e.g. collation mismatch): pair by pair.
+          const pairwise: Array<{ sampled: number; matched: number }> = [];
+          for (const ref of refs) {
+            if (budget <= 0) {
+              break;
+            }
+            budget -= 1;
+            const one = await this.sample(adapter, { child: group.child, parent: ref } as Candidate, signal);
+            pairwise.push(one.status === 'VERIFIED' ? { sampled: one.sampled, matched: Math.round(one.ratio * one.sampled) } : { sampled: 0, matched: 0 });
+          }
+          results = pairwise;
+        }
+        results.forEach((r, k) => {
+          if (r.sampled > 0) {
+            evidence.set(chunk[k]!, { sampled: r.sampled, ratio: Math.max(0, Math.min(1, r.matched / r.sampled)) });
+          }
+        });
+      }
+
+      const hits = [...evidence.entries()]
+        .map(([parent, e]) => ({ parent, ...e, score: containmentOnlyScore(group.childType, e.ratio, e.sampled) }))
+        .filter((h) => h.score > 0);
+      if (hits.length === 0 || hits.length > MAX_REPORTED_TIES) {
+        continue; // nothing found, or so many parents fit that the evidence says nothing
+      }
+      const tied = hits.length > 1;
+      for (const hit of hits) {
+        const score = tied ? round2(hit.score - TIE_PENALTY) : hit.score;
+        if (score < minConfidence) {
+          continue;
+        }
+        const alternatives = hits.filter((h) => h !== hit).map((h) => parentRef(h.parent));
+        out.push({
+          child: group.child,
+          parent: parentRef(hit.parent),
+          score,
+          level: levelOf(score),
+          factors: { lexical: 0, typeCompat: 1, statistical: round2(hit.ratio) },
+          statisticalStatus: 'VERIFIED',
+          reasons: [
+            'No name evidence: inferred only from value containment',
+            `Sampled ${hit.sampled} values: ${(hit.ratio * 100).toFixed(0)}% exist in the parent key`,
+            hit.parent.source === 'PRIMARY_KEY' ? 'Parent column is the primary key' : 'Parent column has a unique index',
+            ...(tied
+              ? [`Ambiguous: ${hits.length} parent keys contain every sampled value (${hits.map((h) => `${h.parent.table.name}.${h.parent.column}`).join(', ')})`]
+              : [])
+          ],
+          ...(tied ? { ambiguousWith: alternatives } : {})
+        });
+      }
+    }
+    return out;
+  }
+
+  private async sampleMany(
+    many: NonNullable<CatalogCapableAdapter['sampleContainmentMany']>,
+    child: ColumnRef,
+    parents: ReadonlyArray<ColumnRef>,
+    external?: AbortSignal
+  ): Promise<ReadonlyArray<{ sampled: number; matched: number }> | undefined> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.sampleTimeoutMs * 2);
+    const onExternal = (): void => controller.abort();
+    external?.addEventListener('abort', onExternal, { once: true });
+    try {
+      return await many(child, parents, { maxSample: this.maxSample, signal: controller.signal });
+    } catch {
+      return undefined;
+    } finally {
+      clearTimeout(timer);
+      external?.removeEventListener('abort', onExternal);
+    }
   }
 
   private declaredChildColumns(snapshot: CatalogSnapshot): Set<string> {
@@ -237,6 +408,18 @@ export class RelationshipInferenceEngine implements IRelationshipInferenceEngine
         const columnEntity = entityTokensOfColumn(col.name, this.tokenizerOptions);
         const normalizedColumn = normalizeName(col.name);
         const columnGeneric = isGenericColumn(col.name);
+        // `id_aud_imp` as the sole PK of AUD_IMP is that table's own identity; pairing it with the key of a
+        // twin table (AUD_IMP2) is a naming coincidence, not a reference.
+        if (
+          child.primaryKeyColumns.length === 1 &&
+          child.primaryKeyColumns[0] === col.name &&
+          columnEntity.length > 0 &&
+          [entityTokensOfTable(child.name), entityTokensOfColumn(child.name, this.tokenizerOptions)].some(
+            (own) => own.join('') === columnEntity.join('')
+          )
+        ) {
+          continue;
+        }
 
         for (const pk of parentKeys) {
           if (pk.table.schema === child.schema && pk.table.name === child.name) {
@@ -249,7 +432,8 @@ export class RelationshipInferenceEngine implements IRelationshipInferenceEngine
 
           const strength = entityMatchStrength(columnEntity, pk.entity);
           const sameName = normalizedColumn === pk.normalizedName;
-          if (strength === 0 && !(sameName && !columnGeneric && !isGenericColumn(pk.column))) {
+          const extendsKey = !columnGeneric && !isGenericColumn(pk.column) && normalizedColumn.startsWith(`${pk.normalizedName}_`);
+          if (strength === 0 && !extendsKey && !(sameName && !columnGeneric && !isGenericColumn(pk.column))) {
             continue;
           }
 
@@ -361,6 +545,10 @@ export class RelationshipInferenceEngine implements IRelationshipInferenceEngine
       external?.removeEventListener('abort', onExternal);
     }
   }
+}
+
+function tokenizeHasId(name: string): boolean {
+  return tokenize(name).some(isIdToken);
 }
 
 function round2(n: number): number {

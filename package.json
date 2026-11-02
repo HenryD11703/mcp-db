@@ -1,6 +1,6 @@
 {
   "name": "db-mcp-node",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Read-only relational database MCP server with strict DatabaseAdapter contract and adversarial security suite",
   "author": "HenryD11703 <3680558330101@ingenieria.usac.edu.gt>",
   "repository": {
@@ -10,11 +10,18 @@
   "type": "module",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
+  "files": [
+    "dist/src/",
+    "docs/glossary.yaml",
+    "README.md",
+    "LICENSE"
+  ],
   "bin": {
     "audit-verify": "dist/src/bin/audit-verify.js",
     "db-mcp": "dist/src/bin/db-mcp.js"
   },
   "scripts": {
+    "prepublishOnly": "npm run build",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
@@ -50,5 +57,19 @@
   },
   "engines": {
     "node": ">=20.0.0"
-  }
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/HenryD11703/mcp-db#readme",
+  "bugs": {
+    "url": "https://github.com/HenryD11703/mcp-db/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "database",
+    "postgresql",
+    "sqlserver",
+    "read-only",
+    "security"
+  ]
 }

@@ -215,6 +215,19 @@ describe('MCP discovery tools end-to-end', () => {
     expect(JSON.stringify(events)).not.toContain('Maestro de clientes');
   });
 
+  it('infer_table_relationships analyzes the whole schema when tables is omitted', async () => {
+    const { text, isError } = await call('infer_table_relationships', { adapterId: 'legacy-db' });
+    expect(isError).toBeFalsy();
+    const payload = payloadOf(text);
+    expect(payload.tablesAnalyzed).toBeGreaterThan(1);
+    expect(
+      payload.relationships.some(
+        (r: { child: { column: string }; parent: { table: string } }) =>
+          r.child.column === 'id_cliente' && r.parent.table === 'clientes'
+      )
+    ).toBe(true);
+  });
+
   it('reports unknown and ambiguous tables as structured errors', async () => {
     const missing = await call('describe_table', { adapterId: 'legacy-db', table: 'no_existe' });
     expect(missing.isError).toBe(true);

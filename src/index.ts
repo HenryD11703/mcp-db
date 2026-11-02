@@ -208,7 +208,9 @@ export function createDatabaseMcpServer(
             params: QUERY_PARAMS_SCHEMA,
             format: {
               type: 'string',
-              enum: ['semantic_xml', 'strict_json']
+              enum: ['semantic_xml', 'strict_json'],
+              description:
+                'Result encoding. strict_json is directly machine-parseable; semantic_xml (the default unless the server sets MCP_OUTPUT_FORMAT) wraps each record in delimited XML.'
             }
           }
         }

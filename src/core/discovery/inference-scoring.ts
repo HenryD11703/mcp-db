@@ -15,6 +15,9 @@ export const MEDIUM_THRESHOLD = 0.65;
 /** Name + type evidence alone can never reach HIGH confidence. */
 export const NO_STATISTICS_CAP = 0.84;
 
+/** Lexical score when the child column is the parent key name plus a suffix (below an exact match). */
+export const EXTENDED_KEY_LEXICAL = 0.75;
+
 export const WEIGHT_LEXICAL = 0.5;
 export const WEIGHT_TYPE = 0.2;
 export const WEIGHT_STATISTICAL = 0.3;
@@ -118,7 +121,31 @@ export function lexicalScore(input: LexicalInput, options: TokenizerOptions = {}
     return { score: 0.8, reasons };
   }
 
+  // `num_art_ped` / `cod_suc_ori` extend the parent key `num_art` / `cod_suc` with a role suffix.
+  if (!parentGeneric && !childGeneric && normalizeName(input.childColumn).startsWith(`${normalizeName(input.parentColumn)}_`)) {
+    reasons.push(`Column name extends the parent key name "${input.parentColumn}"`);
+    return { score: EXTENDED_KEY_LEXICAL, reasons };
+  }
+
   return { score: 0, reasons: ['No lexical evidence linking the column to the parent table'] };
+}
+
+/** Minimum sampled child values before containment alone is trusted as evidence. */
+export const CONTAINMENT_ONLY_MIN_SAMPLE = 10;
+export const CONTAINMENT_ONLY_MIN_RATIO = 0.95;
+/** Without any name evidence, string keys stay MEDIUM and integer keys LOW (dense ints overlap by chance). */
+export const CONTAINMENT_ONLY_STRING_SCORE = 0.75;
+export const CONTAINMENT_ONLY_INT_SCORE = 0.6;
+
+/**
+ * Score for a candidate backed only by value containment (no lexical link).
+ * Returns 0 when the evidence is too thin to be worth reporting.
+ */
+export function containmentOnlyScore(childType: string, ratio: number, sampled: number): number {
+  if (sampled < CONTAINMENT_ONLY_MIN_SAMPLE || ratio < CONTAINMENT_ONLY_MIN_RATIO) {
+    return 0;
+  }
+  return typeFamily(childType) === 'int' ? CONTAINMENT_ONLY_INT_SCORE : CONTAINMENT_ONLY_STRING_SCORE;
 }
 
 export interface ScoreInput {

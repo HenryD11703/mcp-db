@@ -16,3 +16,5 @@ Thumbs.db
 audit*.jsonl
 *.xlsx
 MCP de bases de datos historias de usuario y flujo.md
+/local-lab/
+bench/.out/

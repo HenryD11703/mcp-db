@@ -1,9 +1,10 @@
-import { existsSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   detectAgentTargets,
   buildServerConfig,
+  parseInstallerFlags,
   writeConfigToTarget
 } from '../../src/bin/installer.js';
 
@@ -53,6 +54,39 @@ describe('MCP Interactive Installer (Agent Discovery & Configuration)', () => {
 
     expect(cfg['type']).toBe('stdio');
     expect(cfg['command']).toBe('node');
+  });
+
+  it('builds npx server config when npx mode is selected', () => {
+    const cfg = buildServerConfig('npx:db-mcp-node', {
+      POSTGRES_URL: 'postgresql://ro:pass@localhost:5432/db'
+    });
+
+    expect(cfg['command']).toBe(process.platform === 'win32' ? 'npx.cmd' : 'npx');
+    expect(cfg['args']).toEqual(['-y', 'db-mcp-node', 'start']);
+    expect(cfg['env']).toEqual({
+      POSTGRES_URL: 'postgresql://ro:pass@localhost:5432/db'
+    });
+  });
+
+  it('refuses to overwrite a target file that is not valid JSON', () => {
+    mkdirSync(tempConfigDir, { recursive: true });
+    writeFileSync(tempConfigFile, '{ not json', 'utf8');
+
+    expect(() => writeConfigToTarget(tempConfigFile, 'db-mcp', { command: 'x' })).toThrow(/No se pudo leer/);
+    expect(readFileSync(tempConfigFile, 'utf8')).toBe('{ not json');
+  });
+
+  it('keeps one timestamped backup per write', () => {
+    writeConfigToTarget(tempConfigFile, 'a', { command: 'a' });
+    writeConfigToTarget(tempConfigFile, 'b', { command: 'b' });
+
+    const backups = readdirSync(tempConfigDir).filter((f) => f.endsWith('.bak'));
+    expect(backups.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('parses non-interactive installer flags', () => {
+    const flags = parseInstallerFlags(['--yes', '--agent', 'claude-code', '--pg-url', 'postgresql://x', '--mode', 'npx']);
+    expect(flags).toMatchObject({ yes: true, agent: 'claude-code', pgUrl: 'postgresql://x', mode: 'npx' });
   });
 
   it('writes config to target file safely and preserves existing servers', () => {

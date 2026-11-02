@@ -1,13 +1,13 @@
 import type { CatalogExtras } from '../../contracts/legacy-discovery.contract.js';
 import { assembleCatalogExtras } from '../../core/discovery/catalog-extras.js';
 
-/** Row estimates come from partition statistics (DMV), never from COUNT(*). */
+/** Row estimates come from partition catalog metadata, never from COUNT(*). */
 export const TSQL_CATALOG_TABLES_SQL = `
   SELECT s.name AS schema_name, t.name AS table_name,
-         SUM(CASE WHEN p.index_id IN (0, 1) THEN p.row_count ELSE 0 END) AS estimated_rows
+         SUM(CASE WHEN p.index_id IN (0, 1) THEN p.[rows] ELSE 0 END) AS estimated_rows
   FROM sys.tables t
   INNER JOIN sys.schemas s ON s.schema_id = t.schema_id
-  INNER JOIN sys.dm_db_partition_stats p ON p.object_id = t.object_id
+  INNER JOIN sys.partitions p ON p.object_id = t.object_id
   WHERE t.is_ms_shipped = 0
   GROUP BY s.name, t.name
 `;

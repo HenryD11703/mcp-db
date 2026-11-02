@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="420" viewBox="0 0 900 420" role="img" aria-label="Installation: npm install, db-mcp install, central credentials file, agent configuration" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif">
+<title>Installation: npm install, db-mcp install, central credentials file, agent configuration</title>
+<defs><marker id="a-6e7781" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#6e7781"/></marker><marker id="a-1a7f37" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#1a7f37"/></marker><marker id="a-0969da" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#0969da"/></marker></defs>
+<rect width="900" height="420" rx="14" fill="#f6f8fa" stroke="#d0d7de"/>
+<text x="450" y="34" font-size="18" font-weight="700" fill="#1f2328" text-anchor="middle">From install to first query</text>
+<rect x="30" y="80" width="220" height="70" rx="10" fill="#ddf4ff" stroke="#0969da" stroke-width="1.5"/>
+<text x="140" y="113" font-size="14" font-weight="600" fill="#0969da" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">npm i -g db-mcp-node</text>
+<text x="140" y="131" font-size="12" font-weight="400" fill="#59636e" text-anchor="middle">one command</text>
+<line x1="250" y1="115" x2="300" y2="115" stroke="#6e7781" stroke-width="2" marker-end="url(#a-6e7781)"/>
+<rect x="302" y="80" width="220" height="70" rx="10" fill="#ddf4ff" stroke="#0969da" stroke-width="1.5"/>
+<text x="412" y="113" font-size="14" font-weight="600" fill="#0969da" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">db-mcp install</text>
+<text x="412" y="131" font-size="12" font-weight="400" fill="#59636e" text-anchor="middle">wizard or --yes flags</text>
+<polyline points="522,100 570,100 570,60 600,60" fill="none" stroke="#1a7f37" stroke-width="2" marker-end="url(#a-1a7f37)"/>
+<polyline points="522,130 570,130 570,190 600,190" fill="none" stroke="#0969da" stroke-width="2" marker-end="url(#a-0969da)"/>
+<rect x="602" y="30" width="270" height="70" rx="10" fill="#dafbe1" stroke="#1a7f37" stroke-width="1.5"/>
+<text x="737" y="63" font-size="14" font-weight="600" fill="#1a7f37" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">~/.db-mcp/config.json</text>
+<text x="737" y="81" font-size="12" font-weight="400" fill="#59636e" text-anchor="middle">credentials, owner-only (0600)</text>
+<rect x="602" y="155" width="270" height="70" rx="10" fill="#ffffff" stroke="#0969da" stroke-width="1.5"/>
+<text x="737" y="180" font-size="14" font-weight="600" fill="#1f2328" text-anchor="middle">Agent config</text>
+<text x="737" y="198" font-size="12" font-weight="400" fill="#59636e" text-anchor="middle">Claude Code · Desktop · Antigravity</text>
+<text x="737" y="214" font-size="12" font-weight="400" fill="#59636e" text-anchor="middle">command: db-mcp start (no secrets)</text>
+<text x="30" y="262" font-size="14" font-weight="700" fill="#1f2328" text-anchor="start">Manage connections any time</text>
+<rect x="30" y="276" width="195" height="62" rx="10" fill="#ffffff" stroke="#d0d7de" stroke-width="1.5"/>
+<text x="127.5" y="305" font-size="14" font-weight="600" fill="#1f2328" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">db-mcp add</text>
+<text x="127.5" y="323" font-size="12" font-weight="400" fill="#59636e" text-anchor="middle">save a connection</text>
+<rect x="243" y="276" width="195" height="62" rx="10" fill="#ffffff" stroke="#d0d7de" stroke-width="1.5"/>
+<text x="340.5" y="305" font-size="14" font-weight="600" fill="#1f2328" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">db-mcp connections</text>
+<text x="340.5" y="323" font-size="12" font-weight="400" fill="#59636e" text-anchor="middle">list, passwords masked</text>
+<rect x="456" y="276" width="195" height="62" rx="10" fill="#ffffff" stroke="#d0d7de" stroke-width="1.5"/>
+<text x="553.5" y="305" font-size="14" font-weight="600" fill="#1f2328" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">db-mcp test</text>
+<text x="553.5" y="323" font-size="12" font-weight="400" fill="#59636e" text-anchor="middle">connect + preflight</text>
+<rect x="669" y="276" width="195" height="62" rx="10" fill="#ffffff" stroke="#d0d7de" stroke-width="1.5"/>
+<text x="766.5" y="305" font-size="14" font-weight="600" fill="#1f2328" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">db-mcp remove</text>
+<text x="766.5" y="323" font-size="12" font-weight="400" fill="#59636e" text-anchor="middle">delete a connection</text>
+<rect x="30" y="356" width="840" height="46" rx="8" fill="#ffffff" stroke="#d0d7de" stroke-width="1"/>
+<text x="50" y="384" font-size="13" font-weight="400" fill="#1f2328" text-anchor="start">At runtime: db-mcp start reads config.json, preflight proves read-only, MCP tools go live</text>
+</svg>

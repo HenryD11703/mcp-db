@@ -20,7 +20,7 @@ import {
 import { HardenedAstValidator } from '../../core/validation/ast-validator.js';
 import { normalizeSqlServerPlanXml } from './sqlserver-plan-parser.js';
 import { fetchSqlServerCatalogExtras } from './sqlserver-catalog.js';
-import { buildContainmentSql } from '../../core/discovery/containment-sql.js';
+import { buildContainmentSql, buildMultiContainmentSql } from '../../core/discovery/containment-sql.js';
 import type {
   CatalogCapableAdapter,
   CatalogExtras,
@@ -33,6 +33,8 @@ export interface SqlServerDriverRequest {
   input(name: string, type: QueryParameter['type'], value: unknown): void;
   query(command: string): Promise<{
     recordset: ReadonlyArray<Record<string, unknown>>;
+    /** Column name -> native type name (e.g. `varchar`), in select-list order. */
+    columnTypes?: Readonly<Record<string, string>>;
   }>;
   cancel(): void;
 }
@@ -147,8 +149,17 @@ export async function createMssqlDriverPool(config: sql.config | string): Promis
         },
         async query(command: string) {
           const res = await req.query(command);
+          const meta = (res.recordset as unknown as { columns?: Record<string, { type?: { name?: string } }> } | undefined)
+            ?.columns;
           return {
-            recordset: (res.recordset ?? []) as ReadonlyArray<Record<string, unknown>>
+            recordset: (res.recordset ?? []) as ReadonlyArray<Record<string, unknown>>,
+            ...(meta
+              ? {
+                  columnTypes: Object.fromEntries(
+                    Object.entries(meta).map(([name, c]) => [name, (c.type?.name ?? 'unknown').toLowerCase()])
+                  )
+                }
+              : {})
           };
         },
         cancel() {
@@ -275,11 +286,11 @@ export class SqlServerAdapter implements DatabaseAdapter, CatalogCapableAdapter 
         });
 
         const res = await Promise.race([executionPromise, abortPromise]);
-        return this.formatResult(res.recordset, query.maxRows, Date.now() - startedAt);
+        return this.formatResult(res.recordset, query.maxRows, Date.now() - startedAt, res.columnTypes);
       }
 
       const res = await executionPromise;
-      return this.formatResult(res.recordset, query.maxRows, Date.now() - startedAt);
+      return this.formatResult(res.recordset, query.maxRows, Date.now() - startedAt, res.columnTypes);
     } finally {
       if (query.signal && onAbort) {
         query.signal.removeEventListener('abort', onAbort);
@@ -389,6 +400,23 @@ export class SqlServerAdapter implements DatabaseAdapter, CatalogCapableAdapter 
     return { sampled: Number(row['sampled'] ?? 0), matched: Number(row['matched'] ?? 0) };
   }
 
+  public async sampleContainmentMany(
+    child: ColumnRef,
+    parents: ReadonlyArray<ColumnRef>,
+    options: ContainmentSampleOptions
+  ): Promise<ReadonlyArray<ContainmentEvidence>> {
+    const sql = buildMultiContainmentSql('tsql', child, parents, options.maxSample);
+    const result = await this.executeQuery({
+      sql,
+      params: [],
+      maxRows: 1,
+      ...(options.signal ? { signal: options.signal } : {})
+    });
+    const row = result.rows[0] ?? {};
+    const sampled = Number(row['sampled'] ?? 0);
+    return parents.map((_, i) => ({ sampled, matched: Number(row[`m${i}`] ?? 0) }));
+  }
+
   public async close(): Promise<void> {    await this.pool.close();
   }
 
@@ -406,14 +434,15 @@ export class SqlServerAdapter implements DatabaseAdapter, CatalogCapableAdapter 
   private formatResult(
     rows: ReadonlyArray<Record<string, unknown>>,
     maxRows: number | undefined,
-    durationMs: number
+    durationMs: number,
+    columnTypes?: Readonly<Record<string, string>>
   ): QueryExecutionResult {
     const slicedRows =
       typeof maxRows === 'number' && maxRows > 0 ? rows.slice(0, maxRows) : rows;
-    const columns: ColumnDescriptor[] = Object.keys(slicedRows[0] ?? {}).map((name) => ({
-      name,
-      dataType: 'sql_variant'
-    }));
+    // Driver metadata also lists the columns of an empty result; without it fall back to the first row.
+    const columns: ColumnDescriptor[] = columnTypes
+      ? Object.entries(columnTypes).map(([name, dataType]) => ({ name, dataType }))
+      : Object.keys(slicedRows[0] ?? {}).map((name) => ({ name, dataType: 'unknown' }));
 
     return {
       columns,

@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="360" viewBox="0 0 900 360" role="img" aria-label="Federated query: keys from source engine, typed parameters into target engine, in-memory join" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif">
+<title>Federated query: keys from source engine, typed parameters into target engine, in-memory join</title>
+<defs><marker id="a-6e7781" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#6e7781"/></marker><marker id="a-1a7f37" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#1a7f37"/></marker></defs>
+<rect width="900" height="360" rx="14" fill="#f6f8fa" stroke="#d0d7de"/>
+<text x="450" y="34" font-size="18" font-weight="700" fill="#1f2328" text-anchor="middle">Cross-database join without linked servers</text>
+<rect x="30" y="110" width="152" height="96" rx="10" fill="#dafbe1" stroke="#1a7f37" stroke-width="1.5"/>
+<text x="106" y="148" font-size="14" font-weight="600" fill="#1a7f37" text-anchor="middle">Source query</text>
+<text x="106" y="166" font-size="12" font-weight="400" fill="#59636e" text-anchor="middle">runs on engine A</text>
+<text x="106" y="182" font-size="12" font-weight="400" fill="#59636e" text-anchor="middle">e.g. PostgreSQL</text>
+<circle cx="48" cy="110" r="12" fill="#1a7f37"/>
+<text x="48" y="114.5" font-size="12" font-weight="700" fill="#ffffff" text-anchor="middle">1</text>
+<line x1="182" y1="158" x2="210" y2="158" stroke="#6e7781" stroke-width="2" marker-end="url(#a-6e7781)"/>
+<rect x="210" y="110" width="152" height="96" rx="10" fill="#fff8c5" stroke="#9a6700" stroke-width="1.5"/>
+<text x="286" y="148" font-size="14" font-weight="600" fill="#9a6700" text-anchor="middle">Extract keys</text>
+<text x="286" y="166" font-size="12" font-weight="400" fill="#59636e" text-anchor="middle">untrusted data</text>
+<text x="286" y="182" font-size="12" font-weight="400" fill="#59636e" text-anchor="middle">capped at 500</text>
+<circle cx="228" cy="110" r="12" fill="#9a6700"/>
+<text x="228" y="114.5" font-size="12" font-weight="700" fill="#ffffff" text-anchor="middle">2</text>
+<line x1="362" y1="158" x2="390" y2="158" stroke="#6e7781" stroke-width="2" marker-end="url(#a-6e7781)"/>
+<rect x="390" y="110" width="152" height="96" rx="10" fill="#dafbe1" stroke="#1a7f37" stroke-width="1.5"/>
+<text x="466" y="148" font-size="14" font-weight="600" fill="#1a7f37" text-anchor="middle">Target query</text>
+<text x="466" y="166" font-size="12" font-weight="400" fill="#59636e" text-anchor="middle">keys bound as typed</text>
+<text x="466" y="182" font-size="12" font-weight="400" fill="#59636e" text-anchor="middle">params ($1 / @p1)</text>
+<circle cx="408" cy="110" r="12" fill="#1a7f37"/>
+<text x="408" y="114.5" font-size="12" font-weight="700" fill="#ffffff" text-anchor="middle">3</text>
+<line x1="542" y1="158" x2="570" y2="158" stroke="#6e7781" stroke-width="2" marker-end="url(#a-6e7781)"/>
+<rect x="570" y="110" width="152" height="96" rx="10" fill="#ddf4ff" stroke="#0969da" stroke-width="1.5"/>
+<text x="646" y="148" font-size="14" font-weight="600" fill="#0969da" text-anchor="middle">In-memory join</text>
+<text x="646" y="166" font-size="12" font-weight="400" fill="#59636e" text-anchor="middle">hash join on raw</text>
+<text x="646" y="182" font-size="12" font-weight="400" fill="#59636e" text-anchor="middle">values, in process</text>
+<circle cx="588" cy="110" r="12" fill="#0969da"/>
+<text x="588" y="114.5" font-size="12" font-weight="700" fill="#ffffff" text-anchor="middle">4</text>
+<line x1="722" y1="158" x2="750" y2="158" stroke="#6e7781" stroke-width="2" marker-end="url(#a-6e7781)"/>
+<rect x="750" y="110" width="152" height="96" rx="10" fill="#fbefff" stroke="#8250df" stroke-width="1.5"/>
+<text x="826" y="148" font-size="14" font-weight="600" fill="#8250df" text-anchor="middle">Pseudonymize</text>
+<text x="826" y="166" font-size="12" font-weight="400" fill="#59636e" text-anchor="middle">HMAC-SHA256 with an</text>
+<text x="826" y="182" font-size="12" font-weight="400" fill="#59636e" text-anchor="middle">ephemeral salt</text>
+<circle cx="768" cy="110" r="12" fill="#8250df"/>
+<text x="768" y="114.5" font-size="12" font-weight="700" fill="#ffffff" text-anchor="middle">5</text>
+<text x="450" y="250" font-size="13" font-weight="400" fill="#59636e" text-anchor="middle">Each step shares one federation_id in the audit log. Raw join keys never reach the agent.</text>
+<rect x="30" y="280" width="380" height="52" rx="10" fill="#dafbe1" stroke="#1a7f37" stroke-width="1.5"/>
+<text x="220" y="312" font-size="14" font-weight="600" fill="#1a7f37" text-anchor="middle">Engine A  ·  PostgreSQL or SQL Server</text>
+<rect x="490" y="280" width="380" height="52" rx="10" fill="#dafbe1" stroke="#1a7f37" stroke-width="1.5"/>
+<text x="680" y="312" font-size="14" font-weight="600" fill="#1a7f37" text-anchor="middle">Engine B  ·  SQL Server or PostgreSQL</text>
+<line x1="106" y1="206" x2="106" y2="278" stroke="#1a7f37" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#a-1a7f37)"/>
+<line x1="486" y1="206" x2="560" y2="278" stroke="#1a7f37" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#a-1a7f37)"/>
+</svg>

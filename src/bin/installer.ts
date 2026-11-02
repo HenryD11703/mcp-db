@@ -1,8 +1,10 @@
 import { existsSync, readFileSync, writeFileSync, copyFileSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import * as readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
+import { defaultConfigPath, loadConfig, upsertConnection } from './config-store.js';
 
 export interface AgentTarget {
   readonly id: string;
@@ -58,10 +60,20 @@ export function buildServerConfig(
     }
   }
 
-  const base: Record<string, unknown> = {
-    command: 'node',
-    args: [serverScriptPath, 'start']
-  };
+  const isNpx = serverScriptPath === 'npx' || serverScriptPath.startsWith('npx:');
+  const pkgName = serverScriptPath.startsWith('npx:')
+    ? serverScriptPath.slice(4)
+    : 'db-mcp-node';
+
+  const base: Record<string, unknown> = isNpx
+    ? {
+        command: process.platform === 'win32' ? 'npx.cmd' : 'npx',
+        args: ['-y', pkgName, 'start']
+      }
+    : {
+        command: 'node',
+        args: [serverScriptPath, 'start']
+      };
 
   if (Object.keys(cleanEnv).length > 0) {
     base['env'] = cleanEnv;
@@ -77,6 +89,23 @@ export function buildServerConfig(
   return base;
 }
 
+export function resolveInstalledScriptPath(): string {
+  const localDist = resolve(process.cwd(), 'dist/src/bin/db-mcp.js');
+  if (existsSync(localDist)) {
+    return localDist;
+  }
+  try {
+    const currentDir = dirname(fileURLToPath(import.meta.url));
+    const siblingScript = resolve(currentDir, 'db-mcp.js');
+    if (existsSync(siblingScript)) {
+      return siblingScript;
+    }
+  } catch {
+    // Fallback to localDist
+  }
+  return localDist;
+}
+
 export function writeConfigToTarget(
   targetPath: string,
   serverName: string,
@@ -89,14 +118,24 @@ export function writeConfigToTarget(
 
   let fileContent: Record<string, unknown> = {};
   if (existsSync(targetPath)) {
-    try {
-      // Create backup
-      copyFileSync(targetPath, `${targetPath}.bak`);
-      const raw = readFileSync(targetPath, 'utf8');
-      fileContent = JSON.parse(raw) as Record<string, unknown>;
-    } catch {
-      fileContent = {};
+    const raw = readFileSync(targetPath, 'utf8');
+    if (raw.trim().length > 0) {
+      try {
+        const parsed: unknown = JSON.parse(raw);
+        if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+          throw new Error('el contenido no es un objeto JSON');
+        }
+        fileContent = parsed as Record<string, unknown>;
+      } catch (err) {
+        // Never overwrite a file we cannot understand (e.g. ~/.claude.json holds all Claude Code state).
+        throw new Error(
+          `No se pudo leer "${targetPath}" como JSON (${err instanceof Error ? err.message : err}). ` +
+            'No se modificó el archivo; corrígelo manualmente y vuelve a intentar.'
+        );
+      }
     }
+    // Timestamped backup so repeated runs never clobber an earlier one.
+    copyFileSync(targetPath, `${targetPath}.${Date.now()}.bak`);
   }
 
   const mcpServers = (fileContent['mcpServers'] ?? {}) as Record<string, unknown>;
@@ -106,95 +145,178 @@ export function writeConfigToTarget(
   writeFileSync(targetPath, JSON.stringify(fileContent, null, 2) + '\n', 'utf8');
 }
 
+export interface InstallerFlags {
+  readonly agent?: string;
+  readonly pgUrl?: string;
+  readonly mssqlUrl?: string;
+  readonly auditPath?: string;
+  readonly mode?: string;
+  readonly yes: boolean;
+}
+
+export function parseInstallerFlags(args: ReadonlyArray<string>): InstallerFlags {
+  const read = (name: string): string | undefined => {
+    const idx = args.indexOf(name);
+    const value = idx !== -1 ? args[idx + 1] : undefined;
+    return value !== undefined && !value.startsWith('--') ? value : undefined;
+  };
+  return {
+    agent: read('--agent'),
+    pgUrl: read('--pg-url'),
+    mssqlUrl: read('--mssql-url'),
+    auditPath: read('--audit-path'),
+    mode: read('--mode'),
+    yes: args.includes('--yes') || args.includes('-y')
+  };
+}
+
+function selectTargets(targets: AgentTarget[], agent: string): AgentTarget[] | null {
+  if (agent === 'all') {
+    const detected = targets.filter((t) => t.exists);
+    return detected.length > 0 ? detected : targets;
+  }
+  const picked = targets.find((t) => t.id === agent);
+  return picked ? [picked] : null;
+}
+
 export async function runInteractiveInstaller(args: ReadonlyArray<string>): Promise<number> {
-  const rl = readline.createInterface({ input, output });
+  const flags = parseInstallerFlags(args);
+  const nonInteractive = flags.yes;
+  const rl = nonInteractive ? undefined : readline.createInterface({ input, output });
+  const ask = async (question: string, preset: string | undefined): Promise<string> =>
+    preset !== undefined ? preset : rl ? await rl.question(question) : '';
 
   console.log('\n======================================================');
   console.log('       INSTALADOR DE SERVIDOR MCP (db-mcp-node)       ');
   console.log('======================================================\n');
-  console.log('Este asistente configurará automáticamente db-mcp en');
-  console.log('tus agentes de IA (Antigravity, Claude Code, etc.).\n');
 
   try {
     const targets = detectAgentTargets();
     const detectedTargets = targets.filter((t) => t.exists);
+    let selectedTargets: AgentTarget[];
 
-    console.log('Agentes detectados en tu sistema:');
-    targets.forEach((t, i) => {
-      const status = t.exists ? '[DETECTADO]' : '[NO DETECTADO]';
-      console.log(`  ${i + 1}) ${t.name.padEnd(26)} ${status} -> ${t.path}`);
-    });
-    console.log(`  ${targets.length + 1}) Todos los agentes detectados (${detectedTargets.map((d) => d.name).join(', ')})`);
-    console.log('  0) Cancelar instalación\n');
-
-    const defaultChoice = detectedTargets.length > 0 ? String(targets.length + 1) : '1';
-    const selection = await rl.question(`Selecciona una opción [default: ${defaultChoice}]: `);
-    const chosen = (selection.trim() || defaultChoice).toLowerCase();
-
-    if (chosen === '0' || chosen === 'cancel') {
-      console.log('Instalación cancelada.');
-      return 0;
-    }
-
-    const selectedTargets: AgentTarget[] = [];
-    const choiceNum = parseInt(chosen, 10);
-
-    if (choiceNum >= 1 && choiceNum <= targets.length) {
-      const picked = targets[choiceNum - 1];
-      if (picked) selectedTargets.push(picked);
-    } else if (choiceNum === targets.length + 1 || chosen === 'all') {
-      selectedTargets.push(...(detectedTargets.length > 0 ? detectedTargets : targets));
+    if (flags.agent !== undefined || nonInteractive) {
+      const picked = selectTargets(targets, (flags.agent ?? 'all').toLowerCase());
+      if (!picked) {
+        console.error(`Agente no válido: "${flags.agent}". Usa: ${targets.map((t) => t.id).join(', ')}, all.`);
+        return 1;
+      }
+      selectedTargets = picked;
     } else {
-      console.error('Opción no válida.');
-      return 1;
+      console.log('Agentes detectados en tu sistema:');
+      targets.forEach((t, i) => {
+        const status = t.exists ? '[DETECTADO]' : '[NO DETECTADO]';
+        console.log(`  ${i + 1}) ${t.name.padEnd(26)} ${status} -> ${t.path}`);
+      });
+      console.log(`  ${targets.length + 1}) Todos los agentes detectados (${detectedTargets.map((d) => d.name).join(', ')})`);
+      console.log('  0) Cancelar instalación\n');
+
+      const defaultChoice = detectedTargets.length > 0 ? String(targets.length + 1) : '1';
+      const selection = await ask(`Selecciona una opción [default: ${defaultChoice}]: `, undefined);
+      const chosen = (selection.trim() || defaultChoice).toLowerCase();
+
+      if (chosen === '0' || chosen === 'cancel') {
+        console.log('Instalación cancelada.');
+        return 0;
+      }
+
+      const choiceNum = parseInt(chosen, 10);
+      if (choiceNum >= 1 && choiceNum <= targets.length) {
+        selectedTargets = [targets[choiceNum - 1]!];
+      } else if (choiceNum === targets.length + 1 || chosen === 'all') {
+        selectedTargets = detectedTargets.length > 0 ? detectedTargets : targets;
+      } else {
+        console.error('Opción no válida.');
+        return 1;
+      }
     }
 
-    console.log('\n------------------------------------------------------');
-    console.log('  Configuración de Conexiones a Bases de Datos        ');
-    console.log('------------------------------------------------------');
-    console.log('(Puedes dejar en blanco cualquier campo para configurarlo después)\n');
+    if (!nonInteractive && flags.pgUrl === undefined && flags.mssqlUrl === undefined) {
+      console.log('\n------------------------------------------------------');
+      console.log('  Configuración de Conexiones a Bases de Datos        ');
+      console.log('------------------------------------------------------');
+      console.log('(Puedes dejar en blanco cualquier campo para configurarlo después)\n');
+    }
 
-    const pgUrl = await rl.question('Cadena de conexión PostgreSQL (ej. postgresql://ro_user:pass@localhost:5432/mibase):\n> ');
-    const mssqlUrl = await rl.question('Cadena de conexión SQL Server (ej. Server=localhost,1433;Database=mibase;User Id=ro_user;Password=pass;TrustServerCertificate=true;):\n> ');
+    const pgUrl = await ask(
+      'Cadena de conexión PostgreSQL (ej. postgresql://ro_user:pass@localhost:5432/mibase):\n> ',
+      flags.pgUrl ?? (nonInteractive ? process.env['POSTGRES_URL'] ?? '' : undefined)
+    );
+    const mssqlUrl = await ask(
+      'Cadena de conexión SQL Server (ej. Server=localhost,1433;Database=mibase;User Id=ro_user;Password=pass;TrustServerCertificate=true;):\n> ',
+      flags.mssqlUrl ?? (nonInteractive ? process.env['SQLSERVER_URL'] ?? '' : undefined)
+    );
 
-    const auditLogPath = await rl.question(`Ruta de auditoría [default: ${join(process.cwd(), 'audit.jsonl')}]:\n> `);
+    if (!pgUrl.trim() && !mssqlUrl.trim() && loadConfig(defaultConfigPath()).adapters.length === 0) {
+      console.error(
+        '\n[AVISO] No hay conexiones configuradas: agrégalas con `db-mcp add <id> --type postgres|sqlserver --url <cadena>`.'
+      );
+    }
 
-    // Determine script entry point
-    const scriptPath = resolve(process.cwd(), 'dist/src/bin/db-mcp.js');
+    const defaultAuditPath = join(homedir(), '.db-mcp', 'audit.jsonl');
+    const auditLogPath = await ask(`Ruta de auditoría [default: ${defaultAuditPath}]:\n> `, flags.auditPath ?? (nonInteractive ? '' : undefined));
+
+    const localDistExists = existsSync(resolve(process.cwd(), 'dist/src/bin/db-mcp.js'));
+    const defaultMode = localDistExists ? '1' : '2';
+    const modePrompt = await ask(
+      `Modo de ejecución [1 = Binario local/instalado, 2 = vía npx (sin clonar repo)] [default: ${defaultMode}]:\n> `,
+      flags.mode ?? (nonInteractive ? '' : undefined)
+    );
+    const chosenMode = (modePrompt.trim() || defaultMode).toLowerCase();
+
+    const scriptPath =
+      chosenMode === '2' || chosenMode === 'npx'
+        ? 'npx:db-mcp-node'
+        : resolveInstalledScriptPath();
+
+    // Credentials live in ~/.db-mcp/config.json (0600), not in each agent's config file.
+    const configPath = defaultConfigPath();
+    if (pgUrl.trim()) {
+      upsertConnection(configPath, { id: 'postgres', type: 'postgres', connectionString: pgUrl.trim() });
+    }
+    if (mssqlUrl.trim()) {
+      upsertConnection(configPath, { id: 'sqlserver', type: 'sqlserver', connectionString: mssqlUrl.trim() });
+    }
+    if (pgUrl.trim() || mssqlUrl.trim()) {
+      console.log(`\n✓ Credenciales guardadas en ${configPath} (solo lectura para tu usuario)`);
+    }
 
     const envVars: Record<string, string> = {
-      POSTGRES_URL: pgUrl.trim(),
-      SQLSERVER_URL: mssqlUrl.trim(),
-      AUDIT_LOG_PATH: auditLogPath.trim() || join(process.cwd(), 'audit.jsonl')
+      AUDIT_LOG_PATH: auditLogPath.trim() === defaultAuditPath ? '' : auditLogPath.trim()
     };
 
     console.log('\n------------------------------------------------------');
     console.log('  Escribiendo configuración...                        ');
     console.log('------------------------------------------------------');
 
+    let failures = 0;
     for (const target of selectedTargets) {
-      const config = buildServerConfig(scriptPath, envVars, Boolean(target.isClaudeCode));
-      writeConfigToTarget(target.path, 'db-mcp', config);
-      console.log(`✓ Configurado exitosamente en: ${target.name}`);
-      console.log(`  Archivo: ${target.path}`);
-      console.log(`  (Se creó respaldo en: ${target.path}.bak)`);
+      try {
+        const config = buildServerConfig(scriptPath, envVars, Boolean(target.isClaudeCode));
+        writeConfigToTarget(target.path, 'db-mcp', config);
+        console.log(`✓ Configurado exitosamente en: ${target.name}`);
+        console.log(`  Archivo: ${target.path}`);
+        console.log(`  (Respaldo previo: ${target.path}.<timestamp>.bak)`);
+      } catch (err) {
+        failures++;
+        console.error(`✗ ${target.name}: ${err instanceof Error ? err.message : err}`);
+      }
+    }
+
+    if (failures > 0) {
+      return 1;
     }
 
     console.log('\n======================================================');
     console.log('         ¡INSTALACIÓN COMPLETADA CON ÉXITO!           ');
     console.log('======================================================');
-    console.log('\n¿Cómo usarlo ahora?');
-    console.log('1. En Google Antigravity (Agy):');
-    console.log('   - Reinicia la sesión o abre una nueva pestaña de chat.');
-    console.log('   - Verás disponibles las 9 herramientas de db-mcp (query_database, execute_federated_query, etc.).');
-    console.log('\n2. En Claude Code CLI:');
-    console.log('   - Ejecuta `claude mcp list` para verificar que `db-mcp` esté conectado.');
-    console.log('   - Claude Code ya tendrá acceso a consultar tus bases de datos de forma segura.');
-    console.log('\nPara cambiar las credenciales en el futuro, puedes editar los archivos JSON');
-    console.log('directamente o volver a ejecutar `npm run cli:db-mcp install`.\n');
+    console.log('\nReinicia tu agente (o abre un chat nuevo) para cargar db-mcp.');
+    console.log('En Claude Code verifica con `claude mcp list`.');
+    console.log('Gestiona conexiones con `db-mcp add|connections|test|remove` (credenciales en ~/.db-mcp/config.json).');
+    console.log('Modo no interactivo: db-mcp install --yes --agent claude-code --pg-url <url> --mode npx\n');
 
     return 0;
   } finally {
-    rl.close();
+    rl?.close();
   }
 }

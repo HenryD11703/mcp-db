@@ -43,3 +43,34 @@ export function buildContainmentSql(
     `LEFT JOIN ${parentTable} p ON p.${q(parent.column)} = s.v`
   );
 }
+
+export const MAX_MULTI_CONTAINMENT_PARENTS = 40;
+
+/**
+ * Tests one bounded child sample against several unique parent keys in a single statement.
+ * The sample is taken once (`LIMIT` / `TOP`) and each parent adds a LEFT JOIN plus one counter, so the
+ * result is a single row of aggregates: `sampled`, `m0`, `m1`, ... (matches per parent, in input order).
+ */
+export function buildMultiContainmentSql(
+  dialect: EngineDialect,
+  child: ColumnRef,
+  parents: ReadonlyArray<ColumnRef>,
+  maxSample: number
+): string {
+  if (parents.length === 0 || parents.length > MAX_MULTI_CONTAINMENT_PARENTS) {
+    throw new Error(`Multi containment probe needs 1..${MAX_MULTI_CONTAINMENT_PARENTS} parents.`);
+  }
+  const cap = Math.max(1, Math.min(100, Math.floor(maxSample)));
+  const q = (id: string): string => quoteIdentifier(dialect, id);
+  const childTable = `${q(child.schema)}.${q(child.table)}`;
+  const cast = dialect === 'postgres' ? '::int' : '';
+  const counters = parents.map((p, i) => `COUNT(p${i}.${q(p.column)})${cast} AS m${i}`).join(', ');
+  const joins = parents
+    .map((p, i) => `LEFT JOIN ${q(p.schema)}.${q(p.table)} p${i} ON p${i}.${q(p.column)} = s.v`)
+    .join(' ');
+  const sample =
+    dialect === 'postgres'
+      ? `SELECT ${q(child.column)} AS v FROM ${childTable} WHERE ${q(child.column)} IS NOT NULL LIMIT ${cap}`
+      : `SELECT TOP (${cap}) ${q(child.column)} AS v FROM ${childTable} WHERE ${q(child.column)} IS NOT NULL`;
+  return `SELECT COUNT(*)${cast} AS sampled, ${counters} FROM (${sample}) s ${joins}`;
+}

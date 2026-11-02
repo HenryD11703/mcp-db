@@ -38,11 +38,13 @@ const describeTableArgs = z
 const inferArgs = z
   .object({
     adapterId: ADAPTER_ID,
-    tables: z.array(z.string().min(1).max(257)).min(1).max(50),
+    tables: z.array(z.string().min(1).max(257)).min(1).max(50).optional(),
     minConfidence: z.number().min(0).max(1).optional(),
     verifyStatistically: z.boolean().optional()
   })
   .passthrough();
+
+const DEFAULT_INFER_SCOPE_LIMIT = 200;
 
 const searchArgs = z
   .object({
@@ -160,10 +162,16 @@ export class DiscoveryTools {
           'Infers probable relationships between tables that lack declared foreign keys using naming patterns, type compatibility and bounded aggregate sampling. Each result carries a confidence score and explanation.',
         inputSchema: {
           type: 'object',
-          required: ['adapterId', 'tables'],
+          required: ['adapterId'],
           properties: {
             adapterId: { type: 'string' },
-            tables: { type: 'array', minItems: 1, maxItems: 50, items: { type: 'string', maxLength: 257 } },
+            tables: {
+              type: 'array',
+              minItems: 1,
+              maxItems: 50,
+              items: { type: 'string', maxLength: 257 },
+              description: 'optional; omit to analyze every base table in the schema'
+            },
             minConfidence: { type: 'number', minimum: 0, maximum: 1, default: 0.7 },
             verifyStatistically: { type: 'boolean', default: true }
           }
@@ -253,13 +261,20 @@ export class DiscoveryTools {
         case 'infer_table_relationships': {
           const args = inferArgs.parse(rawArgs);
           adapterId = args.adapterId;
-          target = `${name} tables=${args.tables.length}`;
           const snapshot = await this.catalog.snapshot(args.adapterId);
-          const tables = args.tables.map((raw) => {
-            const parsed = parseQualifiedName(raw);
-            const t = resolveTable(snapshot.catalog.tables, parsed);
-            return { schema: t.schema, table: t.name };
-          });
+          // Omitted `tables` means the whole schema (base tables only), bounded by DEFAULT_INFER_SCOPE_LIMIT.
+          const allTables = args.tables === undefined;
+          const tables = args.tables
+            ? args.tables.map((raw) => {
+                const parsed = parseQualifiedName(raw);
+                const t = resolveTable(snapshot.catalog.tables, parsed);
+                return { schema: t.schema, table: t.name };
+              })
+            : snapshot.catalog.tables
+                .filter((t) => t.kind === 'TABLE')
+                .slice(0, DEFAULT_INFER_SCOPE_LIMIT)
+                .map((t) => ({ schema: t.schema, table: t.name }));
+          target = `${name} tables=${allTables ? `all(${tables.length})` : tables.length}`;
           const adapter = this.registry.getAdapter(args.adapterId);
           const relationships = await this.engine.infer({
             snapshot,
@@ -275,6 +290,7 @@ export class DiscoveryTools {
           resultCount = relationships.length;
           return this.ok(name, {
             relationships,
+            tablesAnalyzed: tables.length,
             statisticalVerificationAvailable: isCatalogCapable(adapter),
             note: 'Inferred relationships are hypotheses; confidence HIGH requires statistical evidence.'
           });

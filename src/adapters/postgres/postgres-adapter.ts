@@ -19,7 +19,7 @@ import {
 import { HardenedAstValidator } from '../../core/validation/ast-validator.js';
 import { normalizePostgresPlan } from './postgres-plan-parser.js';
 import { fetchPostgresCatalogExtras } from './postgres-catalog.js';
-import { buildContainmentSql } from '../../core/discovery/containment-sql.js';
+import { buildContainmentSql, buildMultiContainmentSql } from '../../core/discovery/containment-sql.js';
 import type {
   CatalogCapableAdapter,
   CatalogExtras,
@@ -74,16 +74,18 @@ const PG_SCHEMA_TABLES_SQL = `
     c.data_type AS data_type,
     (c.is_nullable = 'YES') AS is_nullable,
     c.ordinal_position AS ordinal_position,
+    -- pg_catalog, not information_schema.table_constraints: the latter hides constraints from
+    -- roles that only hold SELECT, which is exactly how this server is meant to connect.
     EXISTS (
       SELECT 1
-      FROM information_schema.table_constraints tc
-      INNER JOIN information_schema.key_column_usage kcu
-        ON tc.constraint_name = kcu.constraint_name
-       AND tc.table_schema = kcu.table_schema
-      WHERE tc.constraint_type = 'PRIMARY KEY'
-        AND tc.table_schema = t.table_schema
-        AND tc.table_name = t.table_name
-        AND kcu.column_name = c.column_name
+      FROM pg_catalog.pg_constraint con
+      INNER JOIN pg_catalog.pg_class cl ON cl.oid = con.conrelid
+      INNER JOIN pg_catalog.pg_namespace n ON n.oid = cl.relnamespace
+      INNER JOIN pg_catalog.pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = ANY (con.conkey)
+      WHERE con.contype = 'p'
+        AND n.nspname = t.table_schema
+        AND cl.relname = t.table_name
+        AND a.attname = c.column_name
     ) AS is_primary_key
   FROM information_schema.tables t
   INNER JOIN information_schema.columns c
@@ -95,24 +97,34 @@ const PG_SCHEMA_TABLES_SQL = `
 
 const PG_SCHEMA_FKS_SQL = `
   SELECT
-    tc.constraint_name AS constraint_name,
-    kcu.table_schema AS source_schema,
-    kcu.table_name AS source_table,
-    kcu.column_name AS source_column,
-    ccu.table_schema AS target_schema,
-    ccu.table_name AS target_table,
-    ccu.column_name AS target_column
-  FROM information_schema.table_constraints tc
-  INNER JOIN information_schema.key_column_usage kcu
-    ON tc.constraint_name = kcu.constraint_name
-   AND tc.table_schema = kcu.table_schema
-  INNER JOIN information_schema.constraint_column_usage ccu
-    ON ccu.constraint_name = tc.constraint_name
-   AND ccu.table_schema = tc.table_schema
-  WHERE tc.constraint_type = 'FOREIGN KEY'
-    AND tc.table_schema NOT IN ('pg_catalog', 'information_schema')
-  ORDER BY tc.constraint_name
+    con.conname AS constraint_name,
+    ns.nspname AS source_schema,
+    cl.relname AS source_table,
+    sa.attname AS source_column,
+    tns.nspname AS target_schema,
+    tcl.relname AS target_table,
+    ta.attname AS target_column
+  FROM pg_catalog.pg_constraint con
+  INNER JOIN pg_catalog.pg_class cl ON cl.oid = con.conrelid
+  INNER JOIN pg_catalog.pg_namespace ns ON ns.oid = cl.relnamespace
+  INNER JOIN pg_catalog.pg_class tcl ON tcl.oid = con.confrelid
+  INNER JOIN pg_catalog.pg_namespace tns ON tns.oid = tcl.relnamespace
+  CROSS JOIN LATERAL unnest(con.conkey, con.confkey) WITH ORDINALITY AS k(src, tgt, ord)
+  INNER JOIN pg_catalog.pg_attribute sa ON sa.attrelid = con.conrelid AND sa.attnum = k.src
+  INNER JOIN pg_catalog.pg_attribute ta ON ta.attrelid = con.confrelid AND ta.attnum = k.tgt
+  WHERE con.contype = 'f'
+    AND ns.nspname NOT IN ('pg_catalog', 'information_schema')
+  ORDER BY con.conname, k.ord
 `;
+
+const PG_TYPE_NAMES: ReadonlyMap<number, string> = new Map(
+  Object.entries(pg.types.builtins).map(([name, oid]) => [Number(oid), name.toLowerCase()])
+);
+
+/** Readable name for a result-set type OID (`1043` -> `varchar`); custom types keep `oid:<n>`. */
+export function pgTypeName(oid: number): string {
+  return PG_TYPE_NAMES.get(oid) ?? `oid:${oid}`;
+}
 
 export function createNodePostgresDriverPool(config: pg.PoolConfig): PostgresDriverPool {
   const pool = new pg.Pool(config);
@@ -391,6 +403,23 @@ export class PostgresAdapter implements DatabaseAdapter, CatalogCapableAdapter {
     return { sampled: Number(row['sampled'] ?? 0), matched: Number(row['matched'] ?? 0) };
   }
 
+  public async sampleContainmentMany(
+    child: ColumnRef,
+    parents: ReadonlyArray<ColumnRef>,
+    options: ContainmentSampleOptions
+  ): Promise<ReadonlyArray<ContainmentEvidence>> {
+    const sql = buildMultiContainmentSql('postgres', child, parents, options.maxSample);
+    const result = await this.executeQuery({
+      sql,
+      params: [],
+      maxRows: 1,
+      ...(options.signal ? { signal: options.signal } : {})
+    });
+    const row = result.rows[0] ?? {};
+    const sampled = Number(row['sampled'] ?? 0);
+    return parents.map((_, i) => ({ sampled, matched: Number(row[`m${i}`] ?? 0) }));
+  }
+
   public async close(): Promise<void> {    await this.pool.end();
   }
 
@@ -419,7 +448,7 @@ export class PostgresAdapter implements DatabaseAdapter, CatalogCapableAdapter {
       res.fields && res.fields.length > 0
         ? res.fields.map((f) => ({
             name: f.name,
-            dataType: f.dataTypeID !== undefined ? `oid:${f.dataTypeID}` : 'unknown'
+            dataType: f.dataTypeID !== undefined ? pgTypeName(f.dataTypeID) : 'unknown'
           }))
         : Object.keys(slicedRows[0] ?? {}).map((k) => ({ name: k, dataType: 'unknown' }));
 

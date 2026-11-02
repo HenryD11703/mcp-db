@@ -89,8 +89,8 @@ describe('AuditLogger (User Story 1 - Structured Lifecycle Logging)', () => {
   });
 
   it('should enforce fail-closed policy when file write fails', async () => {
-    // Pointing to an invalid directory path on Windows that cannot be written
-    const invalidPath = 'Z:/non-existent-drive-path/cannot-write.jsonl';
+    // Pointing to a path inside an existing regular file so directory creation fails on both Linux and Windows
+    const invalidPath = resolve(process.cwd(), 'package.json', 'non-existent-dir', 'cannot-write.jsonl');
     
     // In failClosed mode, constructing or writing to an invalid path fails with AuditPersistenceError
     expect(() => {
