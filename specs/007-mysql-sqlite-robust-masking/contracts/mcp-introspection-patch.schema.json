@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "EnrichedIntrospectionColumnSchema",
+  "description": "Contrato de salida para columnas en describe_table e introspect_schema con etiquetado semántico de privacidad",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Nombre de la columna en la tabla o vista"
+    },
+    "dataType": {
+      "type": "string",
+      "description": "Tipo de dato nativo del motor relacional"
+    },
+    "nullable": {
+      "type": "boolean"
+    },
+    "isPrimaryKey": {
+      "type": "boolean"
+    },
+    "isSensitive": {
+      "type": "boolean",
+      "description": "Indica si la columna fue clasificada como portadora de PII o datos sensibles"
+    },
+    "sensitiveType": {
+      "type": "string",
+      "enum": ["nit", "dpi", "email", "phone", "amount", "custom"],
+      "description": "Categoría sensible identificada por el clasificador morfológico ('amount' incluye salarios y montos)"
+    },
+    "isMasked": {
+      "type": "boolean",
+      "description": "Confirma que los valores de esta columna son enmascarados activamente en memoria"
+    },
+    "sampleValues": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Muestras de datos: OMITIDO obligatoriamente si isSensitive es true"
+    }
+  },
+  "required": ["name", "dataType", "nullable", "isPrimaryKey", "isSensitive", "isMasked"]
+}
