@@ -171,6 +171,17 @@ describe('MCP discovery tools end-to-end', () => {
     expect(first.total).toBe(LEGACY_TABLES.length);
   });
 
+  it('describe_table enriches sensitive columns without exposing sample data (FR-016, SC-006)', async () => {
+    const { text } = await call('describe_table', { adapterId: 'legacy-db', table: 'clientes' });
+    const payload = payloadOf(text);
+    for (const col of payload.columns) {
+      expect(col).toHaveProperty('isSensitive');
+      expect(col).toHaveProperty('isMasked');
+      expect(col).not.toHaveProperty('sampleValues');
+      expect(col).not.toHaveProperty('samples');
+    }
+  });
+
   it('describe_table injects glossary context and warns about stale references', async () => {
     const { text } = await call('describe_table', { adapterId: 'legacy-db', table: 'clientes' });
     const payload = payloadOf(text);

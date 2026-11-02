@@ -84,8 +84,27 @@ export interface IStartupPreflightGate {
   ): Promise<ReadonlyMap<string, ReadOnlyVerificationResult>>;
 }
 
-export type SensitiveDataType = 'email' | 'phone' | 'dpi' | 'amount' | 'custom';
-export type MaskingStrategy = 'partial' | 'redact' | 'mask_amount' | 'custom';
+export type SensitiveDataType = 'email' | 'phone' | 'dpi' | 'amount' | 'nit' | 'custom';
+export type MaskingStrategy = 'partial' | 'redact' | 'session_pseudonym' | 'mask_amount' | 'custom';
+
+export type ConfidenceState = 'deterministic' | 'low_confidence_fail_safe' | 'none';
+
+export interface UnifiedPrefixConfig {
+  readonly organizationalPrefixes: ReadonlyArray<string>;
+  readonly technicalPrefixes: ReadonlyArray<string>;
+  readonly abbreviationPrefixes: ReadonlyArray<string>;
+  readonly customPrefixes: ReadonlyArray<string>;
+}
+
+export interface ColumnClassificationResult {
+  readonly columnName: string;
+  readonly isSensitive: boolean;
+  readonly dataType: SensitiveDataType;
+  readonly confidence: ConfidenceState;
+  readonly strategy: MaskingStrategy;
+  readonly matchedRuleId?: string;
+  readonly inferredPrefixes?: ReadonlyArray<string>;
+}
 
 export interface MaskingRule {
   readonly id: string;

@@ -18,7 +18,7 @@ export interface ParameterBinderOptions {
 /**
  * Parameter Binder for Federated Queries (FR-013, Principle III).
  * Safely expands the explicit `:keys` placeholder in target SQL templates
- * into typed dialect parameter markers ($1, $2, ... for PostgreSQL or @p1, @p2, ... for SQL Server).
+ * into typed dialect parameter markers ($1, $2, ... for PostgreSQL, ? for MySQL/SQLite, or @p1, @p2, ... for SQL Server).
  * Raw key values are NEVER concatenated into the SQL string; they travel strictly via the `params` array.
  */
 export class ParameterBinder {
@@ -61,6 +61,13 @@ export class ParameterBinder {
         markers.push(`$${idx}`);
         params.push({
           name: `${idx}`,
+          type: paramType,
+          value: keyVal
+        });
+      } else if (dialect === 'mysql' || dialect === 'mariadb' || dialect === 'sqlite') {
+        markers.push('?');
+        params.push({
+          name: `p${idx}`,
           type: paramType,
           value: keyVal
         });

@@ -1,3 +1,4 @@
+import { LexicalColumnAnalyzer } from '../security/lexical-column-analyzer.js';
 import type { ForeignKeyMetadata, TableMetadata } from '../../contracts/database-adapter.js';
 import type {
   CatalogExtras,
@@ -63,6 +64,7 @@ export class CatalogService {
   private readonly ttlMs: number;
   private readonly now: () => number;
   private readonly cache = new Map<string, { at: number; snapshot: CatalogSnapshot }>();
+  private readonly lexicalAnalyzer = new LexicalColumnAnalyzer();
 
   constructor(options: CatalogServiceOptions) {
     this.loader = options.loader;
@@ -146,7 +148,11 @@ export class CatalogService {
         defaultExpression: extra?.defaultExpression ?? null,
         isPrimaryKey: table.primaryKeyColumns.includes(col.name),
         isUnique: isUnique || (table.primaryKeyColumns.length === 1 && table.primaryKeyColumns[0] === col.name),
-        indexNames
+        indexNames,
+        isSensitive: this.lexicalAnalyzer.classifyColumn(col.name).isSensitive,
+        ...(this.lexicalAnalyzer.classifyColumn(col.name).isSensitive
+          ? { sensitiveType: this.lexicalAnalyzer.classifyColumn(col.name).dataType, isMasked: true }
+          : { isMasked: false })
       };
     });
 

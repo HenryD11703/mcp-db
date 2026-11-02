@@ -27,8 +27,30 @@ const FORBIDDEN_AST_FUNCTIONS = new Set([
   'dblink_exec',
   'xp_cmdshell',
   'sp_oacreate',
-  'sp_configure'
+  'sp_configure',
+  'load_file',
+  'sys_eval',
+  'sys_exec',
+  'sleep',
+  'benchmark'
 ]);
+
+function resolveParserDatabase(dialect: EngineDialect): string {
+  switch (dialect) {
+    case 'tsql':
+      return 'TransactSQL';
+    case 'postgres':
+      return 'Postgresql';
+    case 'mysql':
+      return 'MySQL';
+    case 'mariadb':
+      return 'MariaDB';
+    case 'sqlite':
+      return 'Sqlite';
+    default:
+      return 'Postgresql';
+  }
+}
 
 /**
  * Production SQL AST Validator combining the String-Aware Lexical Scanner
@@ -46,7 +68,7 @@ export class HardenedAstValidator implements SqlParserCandidate {
     }
 
     // Stage 2: Full AST parse and recursive node inspection
-    const parserDatabase = dialect === 'tsql' ? 'TransactSQL' : 'Postgresql';
+    const parserDatabase = resolveParserDatabase(dialect);
     let astResult: unknown;
     try {
       astResult = this.parser.astify(sql, { database: parserDatabase });

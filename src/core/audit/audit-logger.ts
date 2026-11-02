@@ -12,6 +12,14 @@ import {
   GENESIS_PREVIOUS_HASH
 } from './audit-hasher.js';
 
+function sanitizeAuditReason(reason: string | null): string | null {
+  if (!reason) return null;
+  return reason
+    .replace(/\b\d{2,8}-[0-9kK]\b/g, "[REDACTED_NIT]")
+    .replace(/\b\d{4}\s?\d{5}\s?\d{4}\b/g, "[REDACTED_DPI]")
+    .replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, "[REDACTED_EMAIL]");
+}
+
 export class AuditLogger implements IAuditLogger {
   private readonly options: Required<AuditLoggerOptions>;
   private currentSequenceNumber: number = 0;
@@ -78,8 +86,10 @@ export class AuditLogger implements IAuditLogger {
           const sequenceNumber = this.currentSequenceNumber + 1;
           const previousHash = this.latestHash;
 
+          const sanitizedReason = sanitizeAuditReason(event.rejectionReason);
           const candidate: Omit<AuditLogEntry, 'entryHash'> = Object.freeze({
             ...event,
+            rejectionReason: sanitizedReason,
             sequenceNumber,
             previousHash
           });

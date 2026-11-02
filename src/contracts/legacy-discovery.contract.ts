@@ -65,6 +65,10 @@ export interface ColumnDetail extends ColumnMetadata {
   readonly isUnique: boolean;
   readonly indexNames: ReadonlyArray<string>;
   readonly glossary?: ColumnGlossary;
+  readonly isSensitive?: boolean;
+  readonly sensitiveType?: string;
+  readonly isMasked?: boolean;
+  readonly sampleValues?: never;
 }
 
 export interface TableDetail extends TableSummary {

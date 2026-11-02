@@ -1,5 +1,26 @@
-export type EngineDialect = 'tsql' | 'postgres';
+import { z } from 'zod';
+
+export type EngineDialect = 'tsql' | 'postgres' | 'mysql' | 'mariadb' | 'sqlite';
 export type CorpusDialect = EngineDialect | 'common';
+
+export const MySqlConnectionConfigSchema = z.object({
+  host: z.string().min(1),
+  port: z.number().int().positive().default(3306),
+  user: z.string().min(1),
+  password: z.string().min(0),
+  database: z.string().min(1),
+  connectionLimit: z.number().int().positive().default(5),
+  connectTimeoutMs: z.number().int().positive().default(5000),
+  ssl: z.boolean().optional()
+});
+export type MySqlConnectionConfig = z.infer<typeof MySqlConnectionConfigSchema>;
+
+export const SqliteConnectionConfigSchema = z.object({
+  filePath: z.string().min(1),
+  allowedDirectories: z.array(z.string()).min(1),
+  timeoutMs: z.number().int().positive().default(5000)
+});
+export type SqliteConnectionConfig = z.infer<typeof SqliteConnectionConfigSchema>;
 
 export type AttackVectorId =
   | 'V01_STACKED_QUERIES'

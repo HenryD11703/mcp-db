@@ -9,9 +9,9 @@ export interface LexicalScanOutput extends SqlValidationResult {
 }
 
 const DANGEROUS_FUNCTIONS_REGEX =
-  /\b(pg_terminate_backend|pg_cancel_backend|pg_reload_conf|pg_rotate_logfile|pg_read_file|pg_read_binary_file|pg_stat_file|pg_ls_dir|pg_ls_logdir|pg_ls_waldir|pg_ls_tmpdir|lo_import|lo_export|set_config|dblink|dblink_exec|xp_cmdshell|sp_oacreate|sp_configure)\s*\(/i;
+  /\b(pg_terminate_backend|pg_cancel_backend|pg_reload_conf|pg_rotate_logfile|pg_read_file|pg_read_binary_file|pg_stat_file|pg_ls_dir|pg_ls_logdir|pg_ls_waldir|pg_ls_tmpdir|lo_import|lo_export|set_config|dblink|dblink_exec|xp_cmdshell|sp_oacreate|sp_configure|load_file|sys_eval|sys_exec)\s*\(/i;
 
-const DELAY_DOS_REGEX = /\b(WAITFOR\s+(DELAY|TIME)|pg_sleep\s*\()/i;
+const DELAY_DOS_REGEX = /\b(WAITFOR\s+(DELAY|TIME)|pg_sleep\s*\(|sleep\s*\(|benchmark\s*\()/i;
 
 const REMOTE_LINKED_FUNC_REGEX = /\b(OPENQUERY|OPENROWSET|OPENDATASOURCE)\s*\(/i;
 
@@ -101,6 +101,28 @@ export function scanSqlLexically(sql: string, dialect: EngineDialect): LexicalSc
       continue;
     }
 
+    // 3b. Backtick identifier: `...` (MySQL, MariaDB, SQLite)
+    if (ch === "`") {
+      let ident = "`";
+      i++;
+      while (i < len) {
+        if (trimmed[i] === "`") {
+          if (i + 1 < len && trimmed[i + 1] === "`") {
+            ident += "``";
+            i += 2;
+            continue;
+          }
+          ident += "`";
+          i++;
+          break;
+        }
+        ident += trimmed[i];
+        i++;
+      }
+      neutralized += ident;
+      continue;
+    }
+
     // 3. T-SQL bracketed identifier: [...]
     if (ch === '[') {
       let ident = '[';
@@ -136,6 +158,15 @@ export function scanSqlLexically(sql: string, dialect: EngineDialect): LexicalSc
           continue;
         }
       }
+    }
+
+    // 5b. Hash comment outside literals: # (MySQL, MariaDB)
+    if (ch === "#" && (dialect === "mysql" || dialect === "mariadb")) {
+      return {
+        allowed: false,
+        reasonCode: "V03_COMMENT_OBFUSCATION",
+        message: "Inline SQL comments (#) are strictly prohibited outside string literals."
+      };
     }
 
     // 5. Inline comment outside literals: --

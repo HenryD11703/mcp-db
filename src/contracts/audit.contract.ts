@@ -30,6 +30,7 @@ export interface AuditLogEntry {
   readonly rejectionReason: string | null;
   readonly executionTimeMs: number;
   readonly rowCount: number;
+  readonly maskedColumns?: ReadonlyArray<string>;
   readonly previousHash: string;
   readonly entryHash: string;
 }
