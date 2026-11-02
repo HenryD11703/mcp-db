@@ -1,6 +1,6 @@
 {
   "name": "db-mcp-node",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Read-only relational database MCP server with strict DatabaseAdapter contract and adversarial security suite",
   "author": "HenryD11703 <3680558330101@ingenieria.usac.edu.gt>",
   "repository": {
