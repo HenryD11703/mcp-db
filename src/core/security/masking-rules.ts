@@ -143,10 +143,28 @@ export function compileRuleMatcher(matcher: string | RegExp, isColumnName: boole
   return new RegExp(matcher, 'g');
 }
 
+/**
+ * Splits a column identifier into its constituent words, recognizing snake_case
+ * ("telefono_movil"), camelCase ("clienteTelefono") and the acronym-prefixed
+ * PascalCase legacy schemas commonly use ("CLTTelefono" -> ["CLT", "Telefono"]).
+ */
+function tokenizeIdentifier(name: string): string[] {
+  const withSeparators = name.replace(/[^a-zA-Z0-9]+/g, '_');
+  return withSeparators
+    .split('_')
+    .flatMap((part) => part.match(/[A-Z]+(?=[A-Z][a-z]|[^A-Za-z]|$)|[A-Z]?[a-z]+|[0-9]+/g) ?? [part])
+    .filter((part) => part.length > 0);
+}
+
+/** Normalizes any naming convention to lowercase snake_case so column-name rules match regardless of style. */
+function normalizeColumnName(name: string): string {
+  return tokenizeIdentifier(name).join('_').toLowerCase();
+}
+
 export function doesColumnMatchRule(columnName: string, rule: MaskingRule): boolean {
   if (!rule.enabled || rule.targetType !== 'column_name') {
     return false;
   }
   const regex = compileRuleMatcher(rule.matcher, true);
-  return regex.test(columnName);
+  return regex.test(columnName) || regex.test(normalizeColumnName(columnName));
 }

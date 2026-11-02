@@ -48,6 +48,40 @@ describe('DataMaskingEngine (In-Memory PII & Financial Masking)', () => {
     expect(serialized).not.toContain('12500');
   });
 
+  it('masks phone/email/dpi columns regardless of naming convention (snake_case, camelCase, acronym-prefixed PascalCase)', () => {
+    // Regression for a live legacy schema where "CLTTelefono" (ALLCAPS prefix + PascalCase)
+    // slipped past the column-name rule because it required "_" or start/end boundaries.
+    const rawResult: QueryExecutionResult = {
+      columns: [
+        { name: 'CLTId', dataType: 'varchar' },
+        { name: 'CLTTelefono', dataType: 'varchar' },
+        { name: 'clienteEmail', dataType: 'varchar' },
+        { name: 'CLTNombre', dataType: 'varchar' }
+      ],
+      rows: [
+        {
+          CLTId: 'C-001',
+          CLTTelefono: '24755925',
+          clienteEmail: 'ana.gomez@banco.gt',
+          CLTNombre: 'Drogueria Centro Historico S.A.'
+        }
+      ],
+      rowCount: 1,
+      durationMs: 1
+    };
+
+    const masked = engine.maskDataset(rawResult);
+    const row = masked.rows[0]!;
+
+    expect(row['CLTTelefono']).toBe('(***) ***-5925');
+    expect(row['clienteEmail']).toBe('a***z@banco.gt');
+    expect(row['CLTNombre']).toBe('Drogueria Centro Historico S.A.');
+
+    const serialized = JSON.stringify(masked);
+    expect(serialized).not.toContain('24755925');
+    expect(serialized).not.toContain('ana.gomez@banco.gt');
+  });
+
   it('masks sensitive values by content pattern even in generic column names', () => {
     const rawResult: QueryExecutionResult = {
       columns: [
