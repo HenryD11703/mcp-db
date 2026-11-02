@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { MySqlAdapter } from '../adapters/mysql/index.js';
+import { SqliteAdapter } from '../adapters/sqlite/index.js';
 import { readFileSync, existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';

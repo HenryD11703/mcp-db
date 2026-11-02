@@ -41,7 +41,7 @@ describe('config-store (central ~/.db-mcp/config.json)', () => {
 
   it('rejects invalid ids, types and empty connection strings', () => {
     expect(() => upsertConnection(file, { id: 'bad id!', type: 'postgres', connectionString: 'x' })).toThrow(/Identificador/);
-    expect(() => upsertConnection(file, { id: 'ok', type: 'mysql' as never, connectionString: 'x' })).toThrow(/Tipo/);
+    expect(() => upsertConnection(file, { id: 'ok', type: 'oracle' as never, connectionString: 'x' })).toThrow(/Tipo/);
     expect(() => upsertConnection(file, { id: 'ok', type: 'postgres', connectionString: '  ' })).toThrow(/vacía/);
     expect(existsSync(file)).toBe(false);
   });

@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSy
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
-export type ConnectionType = 'postgres' | 'sqlserver';
+export type ConnectionType = 'postgres' | 'sqlserver' | 'mysql' | 'mariadb' | 'sqlite';
 
 export interface ConnectionEntry {
   readonly id: string;
@@ -22,7 +22,7 @@ export function defaultConfigPath(): string {
 }
 
 export function isConnectionType(value: string): value is ConnectionType {
-  return value === 'postgres' || value === 'sqlserver';
+  return value === 'postgres' || value === 'sqlserver' || value === 'mysql' || value === 'mariadb' || value === 'sqlite';
 }
 
 export function loadConfig(configPath: string): DbMcpConfig {
