@@ -27,7 +27,7 @@ Pointing an LLM at a production database is useful and scary. `db-mcp-node` puts
 
 | | |
 | :--- | :--- |
-| **Engines** | PostgreSQL 12+ · SQL Server 2017+ / Azure SQL |
+| **Engines** | PostgreSQL 12+ · SQL Server 2017+ / Azure SQL · MySQL 8.0+ / MariaDB 10.5+ · SQLite 3 |
 | **Clients** | Claude Code · Claude Desktop · Google Antigravity · any MCP client |
 | **Runtime** | Node.js 20+ |
 
@@ -45,6 +45,8 @@ The wizard finds your AI agents, asks for your connection strings and registers 
 ```bash
 db-mcp add erp --type postgres --url "postgresql://ro_user:pass@localhost:5432/erp"
 db-mcp add legacy --type sqlserver --url "Server=host,1433;Database=db;User Id=ro;Password=pass;TrustServerCertificate=true;"
+db-mcp add sales --type mysql --url "mysql://ro_user:pass@localhost:3306/sales"
+db-mcp add local --type sqlite --url "./data/app.db"
 db-mcp connections     # list them, passwords masked
 db-mcp test            # connect, prove the user is read-only, check plan analysis
 ```
