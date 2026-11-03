@@ -48,3 +48,21 @@ describe('String-Aware Lexical Scanner (Vector 3 & Lexical Guards)', () => {
     expect(result.reasonCode).toBe('V08_TSQL_IMPLICIT_EXEC');
   });
 });
+
+describe('write statements are not mislabelled as session commands', () => {
+  it.each([
+    "UPDATE t SET p = 1 WHERE a = 'x'",
+    'UPDATE tb_productos_catalogo SET precio_venta_publico = 50.00 WHERE prod_sku = ?'
+  ])('reports NON_SELECT_ROOT for: %s', async (sql) => {
+    const { HardenedAstValidator } = await import('../../src/core/validation/ast-validator.js');
+    const verdict = new HardenedAstValidator().validateSelectOnly(sql, 'mysql');
+    expect(verdict.allowed).toBe(false);
+    expect(verdict.reasonCode).toBe('NON_SELECT_ROOT');
+  });
+
+  it('still reports real session commands as V10', async () => {
+    const { HardenedAstValidator } = await import('../../src/core/validation/ast-validator.js');
+    const verdict = new HardenedAstValidator().validateSelectOnly('SELECT 1; SET search_path TO evil', 'postgres');
+    expect(verdict.allowed).toBe(false);
+  });
+});

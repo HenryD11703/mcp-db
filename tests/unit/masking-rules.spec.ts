@@ -15,7 +15,7 @@ function dpiRule() {
 }
 
 function amountRule() {
-  return DEFAULT_MASKING_RULES.find((r) => r.id === 'col-amount')!;
+  return DEFAULT_MASKING_RULES.find((r) => r.id === 'col-salary')!;
 }
 
 describe('doesColumnMatchRule (identifier tokenization across naming conventions)', () => {

@@ -19,7 +19,7 @@ describe('LexicalColumnAnalyzer against column-name-sensitivity-corpus.json', ()
   const rawCorpus = fs.readFileSync(corpusPath, 'utf8');
   const corpus: Corpus = JSON.parse(rawCorpus);
 
-  const analyzer = new LexicalColumnAnalyzer();
+  const analyzer = new LexicalColumnAnalyzer({ maskBusinessAmounts: true });
 
   it('detects 100% of sensible cases in corpus without missing any (0% false negatives)', () => {
     const sensibleCases = corpus.cases.filter((c) => c.label === 'sensible');

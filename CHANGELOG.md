@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- Business amounts (`monto_*`, `saldo`, `balance`, `Q 1,234.56` patterns) are no longer masked by default; set `MASKING_MASK_AMOUNTS=true` to restore it. Salaries stay masked. The catalog's `isMasked` flag follows the same setting.
+
+### Fixed
+- `UPDATE ... SET` is now rejected as `NON_SELECT_ROOT` instead of being mislabelled `V10_SESSION_OR_INTERNAL_CMD`.
+
 ## [1.0.0] - 2026-11-02
 
 ### Added

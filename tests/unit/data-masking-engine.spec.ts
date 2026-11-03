@@ -1,9 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import type { QueryExecutionResult } from '../../src/contracts/database-adapter.js';
 import { DataMaskingEngine } from '../../src/core/security/data-masking-engine.js';
+import { buildDefaultMaskingRules } from '../../src/core/security/default-masking-profile.js';
+import type { MaskingProfile } from '../../src/contracts/security.contract.js';
 
 describe('DataMaskingEngine (In-Memory PII & Financial Masking)', () => {
-  const engine = new DataMaskingEngine();
+  const maskAmountsProfile: MaskingProfile = {
+    profileName: 'amounts-on',
+    description: 'default rules with business-amount masking enabled',
+    rules: buildDefaultMaskingRules(true)
+  };
+  const engine = new DataMaskingEngine(maskAmountsProfile);
 
   it('masks emails, phones, Guatemala DPI, and monetary amounts by column name', () => {
     const rawResult: QueryExecutionResult = {
@@ -160,5 +167,25 @@ describe('DataMaskingEngine (In-Memory PII & Financial Masking)', () => {
     expect(masked.rows[0]!['monto']).toBeNull();
     expect(masked.rows[0]!['activo']).toBe(true);
     expect(masked.maskedCellsCount).toBe(0);
+  });
+
+  it('leaves business amounts readable by default but still masks salaries', () => {
+    const defaults = new DataMaskingEngine();
+    const result: QueryExecutionResult = {
+      columns: [
+        { name: 'monto_total', dataType: 'decimal' },
+        { name: 'saldo', dataType: 'decimal' },
+        { name: 'salario_mensual', dataType: 'decimal' },
+        { name: 'nota', dataType: 'text' }
+      ],
+      rows: [{ monto_total: 1250.5, saldo: 80, salario_mensual: 9000, nota: 'cobro de Q 9,500.00' }],
+      rowCount: 1,
+      durationMs: 1
+    };
+    const row = defaults.maskDataset(result).rows[0]!;
+    expect(row['monto_total']).toBe(1250.5);
+    expect(row['saldo']).toBe(80);
+    expect(row['nota']).toBe('cobro de Q 9,500.00');
+    expect(row['salario_mensual']).toBe('Q [ENMASCARADO]');
   });
 });

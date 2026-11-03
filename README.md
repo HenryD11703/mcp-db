@@ -198,6 +198,7 @@ What still gets missed in the 100-table schema are columns with no name hint who
 | `SQLITE_PATH` / `SQLITE_URL` | SQLite database file path | none |
 | `SQLITE_ADAPTER_ID` | Adapter id for the SQLite connection | `sqlite` |
 | `SQLITE_ALLOWED_DIRECTORIES` | Comma-separated whitelist of allowed directories for SQLite files | current dir + db dir |
+| `MASKING_MASK_AMOUNTS` | `true` also masks business amounts (`monto`, `saldo`, `balance`, `Q 1,234.56` patterns). Salaries are always masked. Off by default: hiding totals breaks reporting and the same figures are usually reachable through detail tables | `false` |
 | `MASKING_CUSTOM_PREFIXES` | Comma-separated custom prefixes for continuous column name segmentation | none |
 | `MCP_CONFIG_PATH` | JSON file with several adapters | none |
 | `AUDIT_LOG_PATH` | Append-only audit file | `./audit.jsonl` if it exists, else `~/.db-mcp/audit.jsonl` |

@@ -2,24 +2,44 @@ import type {
   ColumnClassificationResult,
   SensitiveDataType
 } from '../../contracts/security.contract.js';
+import { isAmountMaskingEnabled } from './default-masking-profile.js';
 import { UnifiedPrefixCatalog } from './unified-prefix-catalog.js';
 import { SafeVocabularyDictionary } from './safe-vocabulary-dict.js';
 
 export interface LexicalAnalyzerOptions {
   readonly prefixCatalog?: UnifiedPrefixCatalog;
   readonly safeVocabulary?: SafeVocabularyDictionary;
+  /** Also classify business amounts (monto, saldo, balance) as sensitive. Salaries always are. */
+  readonly maskBusinessAmounts?: boolean;
 }
+
+const PERSONAL_PAY_NAME = /(salar|sueldo|(^|[^a-z])sal($|[^a-z]))/i;
 
 export class LexicalColumnAnalyzer {
   private readonly prefixCatalog: UnifiedPrefixCatalog;
   private readonly safeVocabulary: SafeVocabularyDictionary;
+  private readonly maskBusinessAmounts: boolean;
 
   constructor(options?: LexicalAnalyzerOptions) {
+    this.maskBusinessAmounts = options?.maskBusinessAmounts ?? isAmountMaskingEnabled();
     this.prefixCatalog = options?.prefixCatalog ?? new UnifiedPrefixCatalog();
     this.safeVocabulary = options?.safeVocabulary ?? new SafeVocabularyDictionary();
   }
 
   public classifyColumn(rawColumnName: string): ColumnClassificationResult {
+    const result = this.classifyColumnInternal(rawColumnName);
+    if (
+      result.isSensitive &&
+      result.dataType === 'amount' &&
+      !this.maskBusinessAmounts &&
+      !PERSONAL_PAY_NAME.test(rawColumnName)
+    ) {
+      return { columnName: rawColumnName, isSensitive: false, dataType: 'custom', confidence: 'none', strategy: 'partial' };
+    }
+    return result;
+  }
+
+  private classifyColumnInternal(rawColumnName: string): ColumnClassificationResult {
     const raw = rawColumnName.trim();
     if (raw.length === 0) {
       return {

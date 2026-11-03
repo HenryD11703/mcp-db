@@ -1,6 +1,22 @@
 import type { MaskingProfile, MaskingRule } from '../../contracts/security.contract.js';
 
-export const DEFAULT_MASKING_RULES: ReadonlyArray<MaskingRule> = [
+/**
+ * Business amounts (invoice totals, balances, prices) are not masked by default: hiding them
+ * breaks legitimate reporting, and the same figures are usually reachable through detail tables,
+ * so masking one column only gives a false sense of protection. Personal pay (salary) is always
+ * masked. Set MASKING_MASK_AMOUNTS=true to also mask business amounts and `Q 1,234.56` patterns.
+ */
+export function isAmountMaskingEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return /^(1|true|yes|on)$/i.test(env['MASKING_MASK_AMOUNTS'] ?? '');
+}
+
+export function buildDefaultMaskingRules(maskAmounts: boolean): ReadonlyArray<MaskingRule> {
+  return DEFAULT_RULE_TEMPLATES.map((rule) =>
+    rule.dataType === 'amount' && rule.id !== 'col-salary' ? { ...rule, enabled: maskAmounts } : rule
+  );
+}
+
+const DEFAULT_RULE_TEMPLATES: ReadonlyArray<MaskingRule> = [
   // 1. Column-name based rules
   {
     id: 'col-nit',
@@ -35,9 +51,17 @@ export const DEFAULT_MASKING_RULES: ReadonlyArray<MaskingRule> = [
     enabled: true
   },
   {
+    id: 'col-salary',
+    targetType: 'column_name',
+    matcher: /(^|_)(salario|sueldo|salary)($|_)/i,
+    dataType: 'amount',
+    strategy: 'mask_amount',
+    enabled: true
+  },
+  {
     id: 'col-amount',
     targetType: 'column_name',
-    matcher: /(^|_)(monto|salario|sueldo|balance|saldo|importe|amount|salary|total_pago)($|_)/i,
+    matcher: /(^|_)(monto|balance|saldo|importe|amount|total_pago)($|_)/i,
     dataType: 'amount',
     strategy: 'mask_amount',
     enabled: true
@@ -86,10 +110,12 @@ export const DEFAULT_MASKING_RULES: ReadonlyArray<MaskingRule> = [
   }
 ];
 
+export const DEFAULT_MASKING_RULES: ReadonlyArray<MaskingRule> = buildDefaultMaskingRules(isAmountMaskingEnabled());
+
 export const DEFAULT_MASKING_PROFILE: MaskingProfile = {
   profileName: 'default-security-profile',
   description:
-    'Default enterprise masking profile for emails, phone numbers, Guatemala 13-digit DPI, NIT, and monetary amounts.',
+    'Default enterprise masking profile for emails, phone numbers, Guatemala 13-digit DPI, NIT and salaries; business amounts only with MASKING_MASK_AMOUNTS=true.',
   rules: DEFAULT_MASKING_RULES,
   maskUnmatchedAmounts: false
 };

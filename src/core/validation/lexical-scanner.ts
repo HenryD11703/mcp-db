@@ -29,6 +29,8 @@ const SELECT_INTO_REGEX =
 
 const TSQL_IMPLICIT_EXEC_REGEX = /(^\s*|\s+)(EXEC|EXECUTE)\s+(@|[a-zA-Z_][\w$#.]*|\[[^\]]+\])/i;
 
+const UPDATE_SET_REGEX = /\bUPDATE\b[\s\S]*?\bSET\b/i;
+
 const SESSION_OR_INTERNAL_CMD_REGEX =
   /(^\s*|\s+)(DBCC\s+[a-zA-Z_]+|SET\s+(TRANSACTION|ROWCOUNT|ANSI_NULLS|QUOTED_IDENTIFIER|NOCOUNT|DEADLOCK_PRIORITY|LOCK_TIMEOUT|IDENTITY_INSERT|STATISTICS|SHOWPLAN_XML|SHOWPLAN_ALL|SHOWPLAN_TEXT|FORCEPLAN|IMPLICIT_TRANSACTIONS|XACT_ABORT| default_transaction_read_only|session_replication_role|search_path|role|statement_timeout|work_mem|[a-zA-Z_][\w.]*\s*(=|TO\b|ON\b|OFF\b)))/i;
 
@@ -217,7 +219,9 @@ export function scanSqlLexically(sql: string, dialect: EngineDialect): LexicalSc
     };
   }
 
-  if (SESSION_OR_INTERNAL_CMD_REGEX.test(neutralized)) {
+  // `UPDATE t SET a = 1` also looks like `SET <var> = ...`; it is a write, not a session command,
+  // so let the AST report it as NON_SELECT_ROOT instead of mislabelling it in logs and audit.
+  if (!UPDATE_SET_REGEX.test(neutralized) && SESSION_OR_INTERNAL_CMD_REGEX.test(neutralized)) {
     return {
       allowed: false,
       reasonCode: 'V10_SESSION_OR_INTERNAL_CMD',
