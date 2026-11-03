@@ -9,7 +9,7 @@ export interface LexicalScanOutput extends SqlValidationResult {
 }
 
 const DANGEROUS_FUNCTIONS_REGEX =
-  /\b(pg_terminate_backend|pg_cancel_backend|pg_reload_conf|pg_rotate_logfile|pg_read_file|pg_read_binary_file|pg_stat_file|pg_ls_dir|pg_ls_logdir|pg_ls_waldir|pg_ls_tmpdir|lo_import|lo_export|set_config|dblink|dblink_exec|xp_cmdshell|sp_oacreate|sp_configure|load_file|sys_eval|sys_exec)\s*\(/i;
+  /\b(pg_terminate_backend|pg_cancel_backend|pg_reload_conf|pg_rotate_logfile|pg_read_file|pg_read_binary_file|pg_stat_file|pg_ls_dir|pg_ls_logdir|pg_ls_waldir|pg_ls_tmpdir|lo_import|lo_export|set_config|dblink|dblink_exec|xp_cmdshell|sp_oacreate|sp_configure|load_file|sys_eval|sys_exec|get_lock|load_extension|randomblob|zeroblob)\s*\(/i;
 
 const DELAY_DOS_REGEX = /\b(WAITFOR\s+(DELAY|TIME)|pg_sleep\s*\(|sleep\s*\(|benchmark\s*\()/i;
 

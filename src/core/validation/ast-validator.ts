@@ -32,7 +32,11 @@ const FORBIDDEN_AST_FUNCTIONS = new Set([
   'sys_eval',
   'sys_exec',
   'sleep',
-  'benchmark'
+  'benchmark',
+  'get_lock',
+  'load_extension',
+  'randomblob',
+  'zeroblob'
 ]);
 
 function resolveParserDatabase(dialect: EngineDialect): string {

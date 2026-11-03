@@ -11,8 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Multi-Engine Relational Support**:
   - PostgreSQL 12+ (`pg` connection pool with read-only transaction defaults).
   - SQL Server 2017+ / Azure SQL (`mssql` pool with `SHOWPLAN_XML` cost analysis).
-  - MySQL 8.0+ / MariaDB 10.5+ (`mysql2` pool with strict SQL modes and active query cancellation watchdog via `KILL QUERY <threadId>` in ≤ 500 ms).
-  - SQLite 3 (`better-sqlite3` with mandatory `mode=ro`, directory whitelist protection, and `:memory:` rejection).
+  - MySQL 8.0+ / MariaDB 10.5+ (`mysql2` pool with strict SQL modes, a `READ ONLY` session and `KILL QUERY <threadId>` cancellation; the startup preflight matches the exact `'user'@'host'` account and also rejects `FILE`, `LOCK TABLES`, `TRIGGER` and similar grants).
+  - SQLite 3 (built-in `node:sqlite`, no native build step; needs Node.js 22.16+). Opens read-only with `query_only`, runs every statement in a killable child process (real cancellation, hard timeout, streamed row cap), resolves symlinks in the directory whitelist, rejects `:memory:`, and prices scans from table size so the cost gate works.
 - **Defense-in-Depth Security Layers**:
   - Read-Only AST Guard (`node-sql-parser` + lexical scanner) rejecting stacked queries, mutating CTEs, `SELECT INTO`, comments outside literals, and dangerous procedures.
   - Fail-closed startup preflight gate inspecting user privileges (`pg_roles`, `sys.fn_my_permissions`, `information_schema.user_privileges`) before allowing connection.

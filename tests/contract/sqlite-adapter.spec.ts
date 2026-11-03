@@ -1,13 +1,16 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import Database from 'better-sqlite3';
+import { createRequire } from 'node:module';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { SqliteAdapter } from '../../src/adapters/sqlite/sqlite-adapter.js';
 import { runDatabaseAdapterContractSuite } from './database-adapter.shared.js';
 import { verifySqlitePathAndPermissions } from '../../src/adapters/sqlite/sqlite-preflight.js';
-import type { ParameterizedQuery, QueryExecutionResult } from '../../src/contracts/database-adapter.js';
-import { QueryCancelledError } from '../../src/core/errors.js';
+
+import { QueryExecutionTimeoutError } from '../../src/core/errors.js';
+
+// node:sqlite is scheme-only, so load it through require instead of the bundler's resolver.
+const { DatabaseSync: Database } = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
 
 describe('SQLite Security & Preflight', () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'db-mcp-sqlite-test-'));
@@ -67,32 +70,16 @@ initDb.exec(`
     estado TEXT,
     saldo REAL
   );
-  CREATE VIEW vista_lenta AS SELECT id FROM clientes;
+  CREATE VIEW vista_lenta AS WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) SELECT count(*) AS id FROM c;
   INSERT INTO clientes VALUES (1, 'Ana'), (2, 'Carlos');
   INSERT INTO pedidos VALUES (101, 1), (102, 2);
   INSERT INTO cuentas VALUES (1, 'ACTIVO', 250.0);
 `);
 initDb.close();
 
-class TestableSqliteAdapter extends SqliteAdapter {
-  public override async executeQuery(query: ParameterizedQuery): Promise<QueryExecutionResult> {
-    if (query.sql.includes('vista_lenta') && query.signal) {
-      return new Promise<QueryExecutionResult>((_, reject) => {
-        const onAbort = () => reject(new QueryCancelledError(this.adapterId));
-        if (query.signal!.aborted) {
-          onAbort();
-        } else {
-          query.signal!.addEventListener('abort', onAbort, { once: true });
-        }
-      });
-    }
-    return super.executeQuery(query);
-  }
-}
-
 runDatabaseAdapterContractSuite('SqliteAdapter', {
   createReadOnlyAdapter: async () => {
-    return new TestableSqliteAdapter({
+    return new SqliteAdapter({
       adapterId: 'sqlite-test-ro',
       filePath: suiteDbPath,
       allowedDirectories: [suiteTempDir]
@@ -110,4 +97,108 @@ runDatabaseAdapterContractSuite('SqliteAdapter', {
   unconditionalJoinQuerySql: 'SELECT clientes.id FROM clientes, pedidos',
   parameterizedSelectSql: 'SELECT id, estado, saldo FROM cuentas WHERE estado = ? AND saldo >= ?',
   longRunningSelectSql: 'SELECT id FROM vista_lenta'
+});
+
+describe('SQLite hardening', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'db-mcp-sqlite-hardening-'));
+  const dbPath = path.join(dir, 'h.db');
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'db-mcp-sqlite-outside-'));
+  const outsideDb = path.join(outside, 'secret.db');
+
+  beforeAll(() => {
+    for (const file of [dbPath, outsideDb]) {
+      const db = new Database(file);
+      db.exec(`CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT);
+        WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 5000)
+        INSERT INTO t (id, v) SELECT i, 'x' FROM n;`);
+      db.close();
+    }
+  });
+  afterAll(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
+  });
+
+  const make = (extra: Partial<ConstructorParameters<typeof SqliteAdapter>[0]> = {}) =>
+    new SqliteAdapter({ adapterId: 'h', filePath: dbPath, allowedDirectories: [dir], ...extra });
+
+  it('rejects a symlink inside an allowed directory that points outside it', () => {
+    const link = path.join(dir, 'link.db');
+    fs.symlinkSync(outsideDb, link);
+    const result = verifySqlitePathAndPermissions(link, [dir]);
+    expect(result.isReadOnly).toBe(false);
+    expect(result.violations.join(' ')).toMatch(/whitelist|allowed/);
+  });
+
+  it('terminates a runaway statement with the backstop timeout instead of freezing the server', async () => {
+    const adapter = make({ queryTimeoutMs: 300 });
+    try {
+      const startedAt = Date.now();
+      await expect(
+        adapter.executeQuery({
+          sql: 'WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) SELECT count(*) FROM c',
+          params: []
+        })
+      ).rejects.toThrow(QueryExecutionTimeoutError);
+      expect(Date.now() - startedAt).toBeLessThan(2000);
+      // The worker is respawned and the adapter keeps working afterwards.
+      const ok = await adapter.executeQuery({ sql: 'SELECT count(*) AS n FROM t', params: [] });
+      expect(ok.rows[0]).toEqual({ n: 5000 });
+    } finally {
+      await adapter.close();
+    }
+  });
+
+  it('caps rows while streaming instead of materialising the whole result', async () => {
+    const adapter = make();
+    try {
+      const res = await adapter.executeQuery({ sql: 'SELECT id FROM t', params: [], maxRows: 10 });
+      expect(res.rowCount).toBe(10);
+    } finally {
+      await adapter.close();
+    }
+  });
+
+  it('prices a scan by table size and flags unbounded recursion as expensive', async () => {
+    const adapter = make();
+    try {
+      const scan = await adapter.analyzeQueryPlan({ sql: 'SELECT v FROM t', params: [] });
+      expect(scan.hasFullScan).toBe(true);
+      expect(scan.estimatedRows).toBe(5000);
+
+      const recursive = await adapter.analyzeQueryPlan({
+        sql: 'WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) SELECT count(*) FROM c',
+        params: []
+      });
+      expect(recursive.estimatedRows).toBeGreaterThanOrEqual(1_000_000);
+    } finally {
+      await adapter.close();
+    }
+  });
+
+  it.each(["SELECT randomblob(1000000000)", "SELECT zeroblob(1000000000)", "SELECT load_extension('x')"])(
+    'blocks memory/extension functions: %s',
+    async (sql) => {
+      const adapter = make();
+      try {
+        await expect(adapter.executeQuery({ sql, params: [] })).rejects.toThrow();
+      } finally {
+        await adapter.close();
+      }
+    }
+  );
+
+  it('orders composite primary keys by their position in the key', async () => {
+    const compositeDb = path.join(dir, 'c.db');
+    const db = new Database(compositeDb);
+    db.exec('CREATE TABLE e (b INTEGER, a INTEGER, PRIMARY KEY (a, b))');
+    db.close();
+    const adapter = new SqliteAdapter({ adapterId: 'c', filePath: compositeDb, allowedDirectories: [dir] });
+    try {
+      const catalog = await adapter.introspectSchema();
+      expect(catalog.tables.find((t) => t.name === 'e')?.primaryKeyColumns).toEqual(['a', 'b']);
+    } finally {
+      await adapter.close();
+    }
+  });
 });

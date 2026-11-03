@@ -29,7 +29,7 @@ Pointing an LLM at a production database is useful and scary. `db-mcp-node` puts
 | :--- | :--- |
 | **Engines** | PostgreSQL 12+ · SQL Server 2017+ / Azure SQL · MySQL 8.0+ / MariaDB 10.5+ · SQLite 3 |
 | **Clients** | Claude Code · Claude Desktop · Google Antigravity · any MCP client |
-| **Runtime** | Node.js 20+ |
+| **Runtime** | Node.js 20+ (SQLite support needs Node.js 22.16+) |
 
 ---
 

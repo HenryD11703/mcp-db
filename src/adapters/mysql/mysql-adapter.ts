@@ -110,6 +110,18 @@ function parseMySqlExplainJson(raw: unknown, adapterId: string): NormalizedRiskP
   };
 }
 
+/** Strict mode plus a read-only session: even if the SQL guard missed something, the server refuses writes. */
+const SESSION_SETUP = [
+  "SET SESSION sql_mode = 'STRICT_ALL_TABLES,NO_ENGINE_SUBSTITUTION'",
+  'SET SESSION TRANSACTION READ ONLY'
+] as const;
+
+async function prepareSession(conn: MySqlDriverConnection): Promise<void> {
+  for (const statement of SESSION_SETUP) {
+    await conn.query(statement);
+  }
+}
+
 export class MySqlAdapter implements DatabaseAdapter {
   public readonly adapterId: string;
   public readonly dialect: EngineDialect;
@@ -162,7 +174,7 @@ export class MySqlAdapter implements DatabaseAdapter {
 
     const conn = await this.pool.getConnection();
     try {
-      await conn.query("SET SESSION sql_mode = 'STRICT_ALL_TABLES,NO_ENGINE_SUBSTITUTION'");
+      await prepareSession(conn);
       const [rows] = await conn.query(MYSQL_PREFLIGHT_QUERY);
       const preflightRow = Array.isArray(rows) && rows.length > 0 ? (rows[0] as MySqlPreflightRow) : undefined;
       return evaluateMySqlPreflight(preflightRow);
@@ -182,7 +194,7 @@ export class MySqlAdapter implements DatabaseAdapter {
     let cleanupWatchdog: (() => void) | undefined;
 
     try {
-      await conn.query("SET SESSION sql_mode = 'STRICT_ALL_TABLES,NO_ENGINE_SUBSTITUTION'");
+      await prepareSession(conn);
       cleanupWatchdog = this.watchdog.attachCancellation(conn.threadId, query.signal);
 
       const boundValues = query.params.map((p) => p.value);
@@ -219,7 +231,7 @@ export class MySqlAdapter implements DatabaseAdapter {
     let cleanupWatchdog: (() => void) | undefined;
 
     try {
-      await conn.query("SET SESSION sql_mode = 'STRICT_ALL_TABLES,NO_ENGINE_SUBSTITUTION'");
+      await prepareSession(conn);
       cleanupWatchdog = this.watchdog.attachCancellation(conn.threadId, query.signal);
 
       const boundValues = query.params.map((p) => p.value);

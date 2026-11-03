@@ -2,6 +2,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { ReadOnlyVerificationResult } from '../../contracts/database-adapter.js';
 
+function realOrResolved(p: string): string {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return path.resolve(p);
+  }
+}
+
 export function verifySqlitePathAndPermissions(
   filePath: string,
   allowedDirectories: ReadonlyArray<string>
@@ -23,13 +31,14 @@ export function verifySqlitePathAndPermissions(
     violations.push('SQLite allowedDirectories whitelist is empty; access is denied.');
   }
 
-  const resolvedTarget = path.resolve(filePath);
+  // Resolve symlinks on both sides so a link inside an allowed directory cannot point outside it.
+  const resolvedTarget = realOrResolved(filePath);
 
   let isInsideWhitelist = false;
   for (const allowedDir of allowedDirectories) {
-    const resolvedDir = path.resolve(allowedDir);
+    const resolvedDir = realOrResolved(allowedDir);
     const relative = path.relative(resolvedDir, resolvedTarget);
-    if (!relative.startsWith('..') && !path.isAbsolute(relative)) {
+    if (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)) {
       isInsideWhitelist = true;
       break;
     }
