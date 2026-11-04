@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, existsSync, unlinkSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { TABLES, buildDdl, generateAllRows } from './build.js';
@@ -12,8 +12,8 @@ function main(): void {
   }
 
   console.log(`[sqlite] creando ${OUT_PATH} ...`);
-  const db = new Database(OUT_PATH);
-  db.pragma('journal_mode = WAL');
+  const db = new DatabaseSync(OUT_PATH);
+  db.exec('PRAGMA journal_mode = WAL');
 
   for (const ddl of buildDdl('sqlite')) {
     db.exec(ddl + ';');
@@ -32,10 +32,14 @@ function main(): void {
     const colList = data.columns.join(', ');
     const placeholders = data.columns.map(() => '?').join(', ');
     const stmt = db.prepare(`INSERT INTO ${tableName} (${colList}) VALUES (${placeholders})`);
-    const insertMany = db.transaction((rows: (string | number | null)[][]) => {
-      for (const row of rows) stmt.run(...row);
-    });
-    insertMany(data.values);
+    db.exec('BEGIN');
+    try {
+      for (const row of data.values) stmt.run(...row);
+      db.exec('COMMIT');
+    } catch (err) {
+      db.exec('ROLLBACK');
+      throw err;
+    }
     totalRows += data.values.length;
     console.log(`[sqlite]   ${tableName}: ${data.values.length} filas`);
   }
