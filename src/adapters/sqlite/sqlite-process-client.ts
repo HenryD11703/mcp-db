@@ -76,8 +76,13 @@ export class SqliteProcessClient {
     return result;
   }
 
+  /** Resolves once the child has really exited, so the database file is released (Windows cannot delete a file that is still open). */
   public async close(): Promise<void> {
+    const child = this.child;
     this.kill();
+    if (child && child.exitCode === null && child.signalCode === null) {
+      await new Promise<void>((resolve) => child.once('exit', () => resolve()));
+    }
   }
 
   private async execute(request: SqliteRunRequest, signal: AbortSignal | undefined, timeoutMs: number): Promise<SqliteRunResult> {
