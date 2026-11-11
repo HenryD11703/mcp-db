@@ -88,7 +88,7 @@ function save(name, svg) {
   const s = new Svg(900, 760, 'db-mcp architecture: MCP client, nine-stage protection pipeline, read-only databases');
   s.text(450, 34, 'db-mcp request pipeline', { size: 18, weight: 700 });
 
-  s.box(250, 56, 400, 58, 'LLM / MCP client', ['Claude Code · Claude Desktop · Antigravity · Cursor'], { fill: C.blueBg, stroke: C.blue, tc: C.blue });
+  s.box(250, 56, 400, 58, 'LLM / MCP client', ['Claude Code · Claude Desktop · Antigravity · others'], { fill: C.blueBg, stroke: C.blue, tc: C.blue });
   s.arrow(450, 114, 450, 148, { label: 'MCP over stdio', color: C.blue, lx: 540, ly: 135 });
 
   s.rect(60, 150, 780, 470, { fill: C.white, stroke: C.blue, r: 14, sw: 2 });
@@ -123,8 +123,14 @@ function save(name, svg) {
   });
 
   s.arrow(450, 620, 450, 660, { label: 'read-only principal', color: C.green, lx: 545, ly: 646 });
-  s.box(160, 662, 280, 62, 'PostgreSQL 12+', ['SELECT-only role'], { fill: C.greenBg, stroke: C.green, tc: C.green });
-  s.box(460, 662, 280, 62, 'SQL Server 2017+ / Azure SQL', ['db_datareader + SHOWPLAN'], { fill: C.greenBg, stroke: C.green, tc: C.green });
+  [
+    ['PostgreSQL 12+', 'SELECT-only role'],
+    ['SQL Server 2017+', 'db_datareader + SHOWPLAN'],
+    ['MySQL 8+ / MariaDB', 'SELECT-only account'],
+    ['SQLite 3', 'opened read-only']
+  ].forEach(([name, sub], i) => {
+    s.box(40 + i * 208, 662, 196, 62, name, [sub], { fill: C.greenBg, stroke: C.green, tc: C.green });
+  });
   save('architecture.svg', s);
 }
 

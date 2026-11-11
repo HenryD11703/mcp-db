@@ -3,7 +3,7 @@
 # db-mcp-node
 
 **A read-only database MCP server your security team can say yes to.**<br>
-Let AI agents explore PostgreSQL and SQL Server, including legacy schemas with no documentation, without ever being able to change a row.
+Let AI agents explore PostgreSQL, SQL Server, MySQL and SQLite, including legacy schemas with no documentation, without ever being able to change a row.
 
 [![npm](https://img.shields.io/npm/v/db-mcp-node?color=cb3837&logo=npm)](https://www.npmjs.com/package/db-mcp-node)
 [![CI](https://github.com/HenryD11703/mcp-db/actions/workflows/ci.yml/badge.svg)](https://github.com/HenryD11703/mcp-db/actions/workflows/ci.yml)
@@ -142,7 +142,7 @@ GRANT SHOWPLAN TO mcp_ro;   -- required, see below
 - Hot-reloadable business glossary (`glossary.yaml`) to translate legacy acronyms and domain codes.
 
 ### 9. Federated cross-database queries
-- Joins PostgreSQL and SQL Server in process memory, with no linked servers or `OPENQUERY`.
+- Joins rows from two configured engines in process memory, with no linked servers or `OPENQUERY`.
 - Join keys from the source are treated as untrusted and bound as typed parameters (`$1` / `@p1`), which blocks second-order SQL injection.
 
 <p align="center">
