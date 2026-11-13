@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - `UPDATE ... SET` is now rejected as `NON_SELECT_ROOT` instead of being mislabelled `V10_SESSION_OR_INTERNAL_CMD`.
+- The stdio server no longer ends with `Maximum call stack size exceeded` when the client disconnects or the process is signalled; shutdown now runs once, and the server also exits when stdin ends.
 
 ## [1.0.0] - 2026-11-02
 

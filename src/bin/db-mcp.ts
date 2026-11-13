@@ -26,6 +26,7 @@ import {
   type ConnectionEntry
 } from './config-store.js';
 import { isMainModule } from './is-main.js';
+import { createShutdown } from './shutdown.js';
 import { quoteIdentifier } from '../core/discovery/containment-sql.js';
 
 export function resolveDefaultAuditLogPath(): string {
@@ -349,27 +350,17 @@ export async function handleCli(args: ReadonlyArray<string>): Promise<number> {
 
       const transport = new StdioServerTransport();
 
-      const cleanup = async () => {
-        try {
-          await server.close();
-          await registry.closeAll();
-        } catch {
-          // Ignore errors during process exit
-        }
-      };
+      const shutdown = createShutdown({
+        closeServer: () => server.close(),
+        closeAdapters: () => registry.closeAll(),
+        exit: (code) => process.exit(code)
+      });
 
-      process.on('SIGINT', async () => {
-        await cleanup();
-        process.exit(0);
-      });
-      process.on('SIGTERM', async () => {
-        await cleanup();
-        process.exit(0);
-      });
-      transport.onclose = async () => {
-        await cleanup();
-        process.exit(0);
-      };
+      process.on('SIGINT', () => void shutdown());
+      process.on('SIGTERM', () => void shutdown());
+      // The client going away is seen as the end of stdin; the SDK transport does not watch for it.
+      process.stdin.on('end', () => void shutdown());
+      transport.onclose = () => void shutdown();
 
       await server.connect(transport);
       console.error('[DB-MCP] Servidor MCP conectado exitosamente sobre Stdio.');
